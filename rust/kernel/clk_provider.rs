@@ -6,11 +6,11 @@
 
 use crate::{
     bindings,
-    error::{to_result, Result},
+    error::{from_result, Result},
     str::CStr,
-    types::Opaque,
+    types::{ForeignOwnable, Opaque},
 };
-
+use macros::vtable;
 /// Represents `struct clk_core`
 ///
 /// # Invariants
@@ -42,6 +42,17 @@ impl ClkHw {
         self.0.get()
     }
 
+    // Unsafe: Argumets Wrapped in CStr.
+    unsafe fn register_clkdev(&mut self, con_id: &'static CStr, dev_id: &'static CStr) -> i32 {
+        unsafe {
+            bindings::clk_hw_register_clkdev(
+                self.0.get(),
+                con_id.as_char_ptr(),
+                dev_id.as_char_ptr(),
+            )
+        }
+    }
+
     // How to implement clk_hw api?
     /*
     pub fn prepare_enable(&mut self) -> Result {
@@ -57,17 +68,6 @@ impl ClkHw {
         Ok(())
     }
     */
-
-    // Unsafe: Argumets Wrapped in CStr.
-    unsafe fn register_clkdev(&mut self, con_id: &'static CStr, dev_id: &'static CStr) -> i32 {
-        unsafe {
-            bindings::clk_hw_register_clkdev(
-                self.0.get(),
-                con_id.as_char_ptr(),
-                dev_id.as_char_ptr(),
-            )
-        }
-    }
 }
 
 /*
@@ -102,4 +102,53 @@ impl ClkOps {
     pub fn as_ptr(&self) -> *mut bindings::clk_ops {
         self.0.get()
     }
+}
+
+// TODO: Implement All ClkOps methods
+#[vtable]
+pub trait ClkOpsBase {
+    /// User data that will be accessible to all operations
+    type Data: ForeignOwnable + Send + Sync = ();
+
+    fn set_rate(_hw: &mut ClkHw, _rate: u32, _parent_rate: u32) -> Result<i32>;
+
+    fn round_rate(_hw: &mut ClkHw, _rate: u32, _round_rate: *mut u32) -> Result<i32>;
+
+    fn recalc_rate(_hw: &mut ClkHw, parent_rate: u32) -> u32;
+}
+
+unsafe extern "C" fn set_rate_callback<T: ClkOpsBase>(
+    hw: *mut bindings::clk_hw,
+    rate: core::ffi::c_ulong,
+    parent_rate: core::ffi::c_ulong,
+) -> core::ffi::c_int {
+    from_result(|| {
+        unsafe {
+            let hw = ClkHw::from_raw(hw);
+        }
+        T::set_rate(hw, rate, parent_rate)
+    })
+}
+
+unsafe extern "C" fn round_rate_callback<T: ClkOpsBase>(
+    hw: *mut bindings::clk_hw,
+    rate: core::ffi::c_ulong,
+    round_rate: *mut core::ffi::c_ulong,
+) -> core::ffi::c_int {
+    from_result(|| {
+        unsafe {
+            let hw = ClkHw::from_raw(hw);
+        }
+        T::round_rate(hw, rate, round_rate)
+    })
+}
+
+unsafe extern "C" fn recalc_rate_callback<T: ClkOpsBase>(
+    hw: *mut bindings::clk_hw,
+    parent_rate: core::ffi::c_ulong,
+) -> core::ffi::c_ulong {
+    unsafe {
+        let hw = ClkHw::from_raw(hw);
+    }
+    T::recalc_rate(hw, parent_rate)
 }
