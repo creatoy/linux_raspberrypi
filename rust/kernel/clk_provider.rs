@@ -104,7 +104,7 @@ impl ClkInitData {
         self.0.name = name.as_char_ptr();
         self.0.num_parents = parent_names.len() as u8;
         self.0.parent_names = {
-            let mut vec: Vec<*const i8> = Vec::with_capacity(parent_names.len());
+            let mut vec: Vec<*const i8> = Vec::new();
             for s in parent_names {
                 vec.try_push(s.as_char_ptr());
             }
