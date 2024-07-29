@@ -103,11 +103,13 @@ impl ClkInitData {
     pub fn name_config(mut self, name: &CStr, parent_names: Vec<&'static CStr>) -> Self {
         self.0.name = name.as_char_ptr();
         self.0.num_parents = parent_names.len() as u8;
-        self.0.parent_names = parent_names
-            .into_iter()
-            .map(|s| s.as_char_ptr())
-            .collect::<Vec<*const i8>>()
-            .as_ptr();
+        self.0.parent_names = {
+            let mut vec: Vec<*const i8> = Vec::with_capacity(parent_names.len());
+            for s in parent_names {
+                vec.try_push(s.as_char_ptr());
+            }
+            vec
+        };
         self
     }
 
