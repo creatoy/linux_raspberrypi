@@ -10,6 +10,7 @@ use crate::{
     str::{CStr, CString},
     types::{ForeignOwnable, Opaque},
 };
+use core::{marker::PhantomData, mem::MaybeUninit};
 use macros::vtable;
 /// Represents `struct clk_core`
 ///
@@ -42,9 +43,13 @@ impl ClkHw {
         self.0.get()
     }
 
-    pub fn name(&self) -> &CStr {
-        // SAFETY: call ffi and ptr is valid
-        unsafe { CStr::from_char_ptr(bindings::__clk_hw_get_name(self.0.get())) }
+    pub fn name(&self) -> &str {
+        // SAFETY: if clk_hw is valid, name is valid. name must be UTF-8 string.
+        unsafe {
+            CStr::from_char_ptr(bindings::__clk_hw_get_name(self.0.get()))
+                .to_str()
+                .unwrap()
+        }
     }
     // Register one clock lookup for a struct clk_hw
     pub fn register_clkdev(&mut self, con_id: &'static CStr, dev_id: &'static CStr) -> Result {
@@ -98,9 +103,13 @@ impl ClkInitData {
     /// Set the name config of the clk_init_data
     ///
     /// It will automatically set the num_parents to the length of parent_names.
-    pub fn name_config(mut self, name: &str, parent_names: impl IntoIterator<Item = &str>) -> Self {
+    pub fn name_config(
+        mut self,
+        name: &str,
+        parent_names: impl IntoIterator<Item = String>,
+    ) -> Self {
         self.0.name = CString::new(name).unwrap();
-        let c_parents: Vec<CString> = parent_names
+        let c_parents = parent_names
             .iter()
             .map(|s| CString::new(s).unwrap())
             .collect();
@@ -108,7 +117,7 @@ impl ClkInitData {
         self
     }
 
-    pub fn ops(mut self, ops: ClkOps) -> Self {
+    pub fn ops(mut self, ops: impl ClkOps) -> Self {
         self.0.ops = ops.as_ptr();
         self
     }
