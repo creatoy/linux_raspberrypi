@@ -11,7 +11,7 @@ use crate::{
     types::{ForeignOwnable, Opaque},
 };
 use alloc::vec::Vec;
-use core::{marker::PhantomData, mem::MaybeUninit};
+use core::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
 use macros::vtable;
 /// Represents `struct clk_core`
 ///
@@ -33,7 +33,7 @@ pub struct ClkHw(Opaque<bindings::clk_hw>);
 
 impl ClkHw {
     /// Create ClkHw from raw ptr
-    pub fn from_raw<'a>(ptr: *mut bindings::clk_hw) -> &'a Self {
+    pub unsafe fn from_raw<'a>(ptr: *mut bindings::clk_hw) -> &'a Self {
         let ptr = ptr.cast::<Self>();
         unsafe { &*ptr }
     }
@@ -113,7 +113,7 @@ impl ClkInitData {
         self
     }
 
-    pub fn ops<T>(mut self, ops: T) -> Self
+    pub fn ops<T>(mut self, _ops: T) -> Self
     where
         T: ClkOps,
     {
@@ -131,9 +131,9 @@ impl ClkInitData {
     /// # Safety
     ///
     /// The pointer must be valid.
-    pub unsafe fn from_raw(ptr: *const bindings::clk_init_data) -> Self {
+    pub unsafe fn from_raw<'a>(ptr: *const bindings::clk_init_data) -> &'a Self {
         let ptr = ptr.cast::<Self>();
-        *ptr
+        unsafe { &*ptr }
     }
 }
 
