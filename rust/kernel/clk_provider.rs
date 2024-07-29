@@ -31,9 +31,9 @@ pub struct ClkHw(Opaque<bindings::clk_hw>);
 
 impl ClkHw {
     /// Create ClkHw from raw ptr
-    pub fn from_raw<'a>(ptr: *mut bindings::clk_hw) -> &'a mut Self {
+    pub fn from_raw<'a>(ptr: *mut bindings::clk_hw) -> &'a Self {
         let ptr = ptr.cast::<Self>();
-        unsafe { &mut *ptr }
+        unsafe { &*ptr }
     }
 
     /// Returns a raw pointer to the inner C struct.
@@ -52,16 +52,16 @@ impl ClkHw {
             }
         }
     }
-
-    // Unsafe: Argumets Wrapped in CStr.
-    unsafe fn register_clkdev(&mut self, con_id: &'static CStr, dev_id: &'static CStr) -> i32 {
-        unsafe {
+    // Register one clock lookup for a struct clk_hw
+    pub fn register_clkdev(&mut self, con_id: &'static CStr, dev_id: &'static CStr) -> Result {
+        let ret = unsafe {
             bindings::clk_hw_register_clkdev(
                 self.0.get(),
                 con_id.as_char_ptr(),
                 dev_id.as_char_ptr(),
             )
-        }
+        };
+        to_result(ret)
     }
 
     // How to implement clk_hw api?
@@ -91,11 +91,6 @@ impl Drop for ClkHw {
     }
 }
 */
-
-// TODO: Implement clk_hw_register_clkdev
-// unsafe fn clk_hw_register_clkdev() -> Result {}
-// TODO: Implement devm_clk_hw_register
-// unsafe fn devm_clk_hw_register() -> Result {}
 
 pub struct ClkInitData(bindings::clk_init_data);
 
@@ -139,69 +134,263 @@ impl ClkInitData {
     }
 }
 
-/// Represents `struct clk_ops`
-pub struct ClkOps(Opaque<bindings::clk_ops>);
-
-// TODO: Create (new) from functions ptr
-impl ClkOps {
-    // TODO!
-    pub fn from_raw(ptr: *const bindings::clk_ops) -> Self {
-        // let ptr = ptr.cast::<Self>();
-        // unsafe { *ptr }
-        unimplemented!()
-    }
-
-    #[inline]
-    pub fn as_ptr(&self) -> *mut bindings::clk_ops {
-        self.0.get()
-    }
-}
-
-// TODO: Implement All ClkOps methods
+/// Trait about a clock device's operations
 #[vtable]
-pub trait ClkOpsBase {
+pub trait ClkOps {
     /// User data that will be accessible to all operations
     type Data: ForeignOwnable + Send + Sync = ();
 
-    fn set_rate(_hw: &mut ClkHw, _rate: u32, _parent_rate: u32) -> Result<i32>;
-
-    fn round_rate(_hw: &mut ClkHw, _rate: u32, _round_rate: *mut u32) -> Result<i32>;
-
-    fn recalc_rate(_hw: &mut ClkHw, parent_rate: u32) -> u32;
+    /// Prepare the clock for enabling.
+    fn prepare(hw: &ClkHw) -> i32;
+    /// Release the clock from its prepared state.
+    fn unprepare(hw: &ClkHw);
+    /// Queries the hardware to determine if the clock is prepared.
+    fn is_prepared(hw: &ClkHw) -> i32;
+    /// Unprepare the clock atomically
+    fn unprepare_unused(hw: &ClkHw);
+    /// Enable the clock atomically
+    fn enable(hw: &ClkHw) -> i32;
+    /// Disable the clock atomically
+    fn disable(hw: &ClkHw);
+    /// Queries the hardware to determine if the clock is enabled
+    fn is_enabled(hw: &ClkHw) -> i32;
+    /// Disable the clock atomically
+    fn disable_unused(hw: &ClkHw);
+    /// Save the context of the clock in prepration for poweroff
+    fn save_context(hw: &ClkHw) -> i32;
+    /// Restore the context of the clock after a restoration of power
+    fn restore_context(hw: &ClkHw);
+    /// Recalculate the rate of this clock, by querying hardware
+    fn recalc_rate(hw: &ClkHw, parent_rate: u64) -> u64;
+    /// Given a target rate as input, returns the closest rate actually supported by the clock
+    fn round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i64;
+    /// Given a target rate as input, returns the closest rate actually supported by the clock, and optionally the
+    /// parent clock that should be used to provide the clock rate.
+    fn determine_rate(hw: &ClkHw, req: *mut bindings::clk_rate_request) -> i32;
+    /// Change the input source of this clock
+    fn set_parent(hw: &ClkHw, index: u8) -> i32;
+    /// Queries the hardware to determine the parent of a clock
+    fn get_parent(hw: &ClkHw) -> u8;
+    /// Change the rate of this clock
+    fn set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> i32;
+    /// Change the rate and the parent of this clock
+    fn set_rate_and_parent(hw: &ClkHw, rate: u64, parent_rate: u64, index: u8) -> i32;
+    /// Recalculate the accuracy of this clock
+    fn recalc_accuracy(hw: &ClkHw, parent_accuracy: u64) -> u64;
+    /// Queries the hardware to get the current phase of a clock
+    fn get_phase(hw: &ClkHw) -> i32;
+    /// Shift the phase this clock signal in degrees specified by the second argument
+    fn set_phase(hw: &ClkHw, degrees: i32) -> i32;
+    /// Queries the hardware to get the current duty cycle ratio of a clock
+    fn get_duty_cycle(hw: &ClkHw, duty: *mut bindings::clk_duty) -> i32;
+    /// Apply the duty cycle ratio to this clock signal specified by the numerator (2nd argurment) and denominator (3rd  argument)
+    fn set_duty_cycle(hw: &ClkHw, duty: *mut bindings::clk_duty) -> i32;
+    /// Perform platform-specific initialization magic
+    fn init(hw: &ClkHw) -> i32;
+    /// Free any resource allocated by init
+    fn terminate(hw: &ClkHw);
+    /// Set up type-specific debugfs entries for this clock
+    fn debug_init(hw: &ClkHw, dentry: *mut bindings::dentry);
 }
 
-unsafe extern "C" fn set_rate_callback<T: ClkOpsBase>(
-    hw: *mut bindings::clk_hw,
-    rate: core::ffi::c_ulong,
-    parent_rate: core::ffi::c_ulong,
-) -> core::ffi::c_int {
-    from_result(|| {
-        unsafe {
-            let hw = ClkHw::from_raw(hw);
-        }
-        T::set_rate(hw, rate, parent_rate)
-    })
-}
+pub(crate) struct Adapter<T: ClkOps>(PhantomData<T>);
 
-unsafe extern "C" fn round_rate_callback<T: ClkOpsBase>(
-    hw: *mut bindings::clk_hw,
-    rate: core::ffi::c_ulong,
-    round_rate: *mut core::ffi::c_ulong,
-) -> core::ffi::c_int {
-    from_result(|| {
-        unsafe {
-            let hw = ClkHw::from_raw(hw);
-        }
-        T::round_rate(hw, rate, round_rate)
-    })
-}
-
-unsafe extern "C" fn recalc_rate_callback<T: ClkOpsBase>(
-    hw: *mut bindings::clk_hw,
-    parent_rate: core::ffi::c_ulong,
-) -> core::ffi::c_ulong {
-    unsafe {
-        let hw = ClkHw::from_raw(hw);
+impl<T: ClkOps> Adapter<T> {
+    unsafe extern "C" fn prepare_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::prepare(&hw)
     }
-    T::recalc_rate(hw, parent_rate)
+
+    unsafe extern "C" fn unprepare_callback(clk_hw: *mut bindings::clk_hw) {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::unprepare(&hw);
+    }
+
+    unsafe extern "C" fn is_prepared_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::is_prepared(&hw)
+    }
+
+    unsafe extern "C" fn unprepare_unused_callback(clk_hw: *mut bindings::clk_hw) {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::unprepare_unused(&hw);
+    }
+
+    unsafe extern "C" fn enable_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::enable(&hw)
+    }
+
+    unsafe extern "C" fn disable_callback(clk_hw: *mut bindings::clk_hw) {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::disable(&hw);
+    }
+
+    unsafe extern "C" fn is_enabled_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::is_enabled(&hw)
+    }
+
+    unsafe extern "C" fn disable_unused_callback(clk_hw: *mut bindings::clk_hw) {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::disable_unused(&hw);
+    }
+
+    unsafe extern "C" fn save_context_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::save_context(&hw)
+    }
+
+    unsafe extern "C" fn restore_context_callback(clk_hw: *mut bindings::clk_hw) {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::restore_context(&hw);
+    }
+
+    unsafe extern "C" fn recalc_rate_callback(
+        clk_hw: *mut bindings::clk_hw,
+        parent_rate: u64,
+    ) -> core::ffi::c_ulong {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::recalc_rate(&hw, parent_rate)
+    }
+
+    unsafe extern "C" fn round_rate_callback(
+        clk_hw: *mut bindings::clk_hw,
+        rate: u64,
+        parent_rate: *mut u64,
+    ) -> core::ffi::c_long {
+        from_result(|| {
+            let hw = unsafe { ClkHw::from_raw(clk_hw) };
+            T::round_rate(&hw, rate, unsafe { &mut *parent_rate })
+        })
+    }
+
+    unsafe extern "C" fn determine_rate_callback(
+        clk_hw: *mut bindings::clk_hw,
+        req: *mut bindings::clk_rate_request,
+    ) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::determine_rate(&hw, req)
+    }
+
+    unsafe extern "C" fn set_parent_callback(
+        clk_hw: *mut bindings::clk_hw,
+        index: u8,
+    ) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::set_parent(&hw, index)
+    }
+
+    unsafe extern "C" fn get_parent_callback(clk_hw: *mut bindings::clk_hw) -> bindings::u8_ {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::get_parent(&hw)
+    }
+
+    unsafe extern "C" fn set_rate_callback(
+        clk_hw: *mut bindings::clk_hw,
+        rate: u64,
+        parent_rate: u64,
+    ) -> core::ffi::c_int {
+        from_result(|| {
+            let hw = unsafe { ClkHw::from_raw(clk_hw) };
+            T::set_rate(&hw, rate, parent_rate)
+        })
+    }
+
+    unsafe extern "C" fn set_rate_and_parent_callback(
+        clk_hw: *mut bindings::clk_hw,
+        rate: u64,
+        parent_rate: u64,
+        index: u8,
+    ) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::set_rate_and_parent(&hw, rate, parent_rate, index)
+    }
+
+    unsafe extern "C" fn recalc_accuracy_callback(
+        clk_hw: *mut bindings::clk_hw,
+        parent_accuracy: u64,
+    ) -> core::ffi::c_ulong {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::recalc_accuracy(&hw, parent_accuracy)
+    }
+
+    unsafe extern "C" fn get_phase_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::get_phase(&hw)
+    }
+
+    unsafe extern "C" fn set_phase_callback(
+        clk_hw: *mut bindings::clk_hw,
+        degrees: i32,
+    ) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::set_phase(&hw, degrees)
+    }
+
+    unsafe extern "C" fn get_duty_cycle_callback(
+        clk_hw: *mut bindings::clk_hw,
+        duty: *mut bindings::clk_duty,
+    ) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::get_duty_cycle(&hw, duty)
+    }
+
+    unsafe extern "C" fn set_duty_cycle_callback(
+        clk_hw: *mut bindings::clk_hw,
+        duty: *mut bindings::clk_duty,
+    ) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::set_duty_cycle(&hw, duty)
+    }
+
+    unsafe extern "C" fn init_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::init(&hw)
+    }
+
+    unsafe extern "C" fn terminate_callback(clk_hw: *mut bindings::clk_hw) {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::terminate(&hw);
+    }
+
+    unsafe extern "C" fn debug_init_callback(
+        clk_hw: *mut bindings::clk_hw,
+        dentry: *mut bindings::dentry,
+    ) {
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::debug_init(&hw, dentry);
+    }
+
+    const VTABLE: bindings::clk_ops = bindings::clk_ops {
+        prepare: Some(Adapter::<T>::prepare_callback),
+        unprepare: Some(Adapter::<T>::unprepare_callback),
+        is_prepared: Some(Adapter::<T>::is_prepared_callback),
+        unprepare_unused: Some(Adapter::<T>::unprepare_unused_callback),
+        enable: Some(Adapter::<T>::enable_callback),
+        disable: Some(Adapter::<T>::disable_callback),
+        is_enabled: Some(Adapter::<T>::is_enabled_callback),
+        disable_unused: Some(Adapter::<T>::disable_unused_callback),
+        save_context: Some(Adapter::<T>::save_context_callback),
+        restore_context: Some(Adapter::<T>::restore_context_callback),
+        recalc_rate: Some(Adapter::<T>::recalc_rate_callback),
+        round_rate: Some(Adapter::<T>::round_rate_callback),
+        determine_rate: Some(Adapter::<T>::determine_rate_callback),
+        set_parent: Some(Adapter::<T>::set_parent_callback),
+        get_parent: Some(Adapter::<T>::get_parent_callback),
+        set_rate: Some(Adapter::<T>::set_rate_callback),
+        set_rate_and_parent: Some(Adapter::<T>::set_rate_and_parent_callback),
+        recalc_accuracy: Some(Adapter::<T>::recalc_accuracy_callback),
+        get_phase: Some(Adapter::<T>::get_phase_callback),
+        set_phase: Some(Adapter::<T>::set_phase_callback),
+        get_duty_cycle: Some(Adapter::<T>::get_duty_cycle_callback),
+        set_duty_cycle: Some(Adapter::<T>::set_duty_cycle_callback),
+        init: Some(Adapter::<T>::init_callback),
+        terminate: Some(Adapter::<T>::terminate_callback),
+        debug_init: Some(Adapter::<T>::debug_init_callback),
+    };
+
+    const fn build() -> &'static bindings::clk_ops {
+        &Self::VTABLE
+    }
 }

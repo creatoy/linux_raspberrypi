@@ -5,11 +5,13 @@
 use kernel::prelude::*;
 
 use kernel::bindings;
+use kernel::clk::Clk;
+use kernel::clk_provider::ClkHw;
 use kernel::completion::Completion;
 use kernel::container_of;
 use kernel::device::Device;
+use kernel::device::RawDevice;
 use kernel::io_mem::IoMem;
-use kernel::{clk::Clk, clk_hw::ClkHw};
 
 /// I2C 地址预留空间
 const I2C_SIZE: usize = 0x100;
@@ -115,6 +117,16 @@ module! {
             description: "clock-stretch timeout (mS)",
         },
     },
+}
+
+impl Bcm2835I2cDevice {
+    fn register_div(&mut self, dev: &mut Device, mclk: &Clk) -> Result<&mut Clk> {
+        let name = dev.name();
+        let mclk_name = mclk.name();
+
+        // TODO: clk_ops implementation
+        todo!()
+    }
 }
 
 fn bcm2835_i2c_writel(i2c_dev: &mut Bcm2835I2cDev, reg: usize, val: u32) {

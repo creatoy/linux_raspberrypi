@@ -6,7 +6,9 @@
 
 use crate::{
     bindings,
+    clk_provider::ClkHw,
     error::{to_result, Result},
+    str::CStr,
     types::Opaque,
 };
 use core::mem::ManuallyDrop;
@@ -51,21 +53,9 @@ impl Clk {
         Ok(())
     }
 
-    /// clk_get_name
-    pub fn clk_get_name(&self) -> Option<String> {
+    pub fn name(&self) -> &CStr {
         // SAFETY: call ffi and ptr is valid
-        unsafe {
-            let name = bindings::clk_get_name(self.0.get());
-            if name.is_null() {
-                None
-            } else {
-                Some(
-                    core::ffi::CStr::from_ptr(name)
-                        .to_string_lossy()
-                        .into_owned(),
-                )
-            }
-        }
+        unsafe { CStr::from_char_ptr(bindings::__clk_get_name(self.0.get())) }
     }
 }
 

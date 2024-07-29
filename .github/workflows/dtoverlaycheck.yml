@@ -1,14 +1,14 @@
 name: Pi dtoverlay checks
 
 on:
-  pull_request:
-    paths-ignore:
-      - '.github/**'
-    branches: [ "rpi-*" ]
-  push:
-    paths-ignore:
-      - '.github/**'
-    branches: [ "rpi-*" ]
+  # pull_request:
+  #   paths-ignore:
+  #     - '.github/**'
+  #   branches: [ "rpi-*" ]
+  # push:
+  #   paths-ignore:
+  #     - '.github/**'
+  #   branches: [ "rpi-*" ]
   workflow_dispatch:
 
 env:
