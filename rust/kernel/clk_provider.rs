@@ -42,15 +42,9 @@ impl ClkHw {
         self.0.get()
     }
 
-    pub fn clk_hw_get_name(&self) -> Option<String> {
-        unsafe {
-            let name_ptr = bindings::clk_hw_get_name(self.as_ptr());
-            if name_ptr.is_null() {
-                None
-            } else {
-                Some(CStr::from_ptr(name_ptr).to_string_lossy().into_owned())
-            }
-        }
+    pub fn name(&self) -> &CStr {
+        // SAFETY: call ffi and ptr is valid
+        unsafe { CStr::from_char_ptr(bindings::__clk_hw_get_name(self.0.get())) }
     }
     // Register one clock lookup for a struct clk_hw
     pub fn register_clkdev(&mut self, con_id: &'static CStr, dev_id: &'static CStr) -> Result {
@@ -99,6 +93,51 @@ impl ClkInitData {
     pub fn new() -> Self {
         let up = unsafe { MaybeUninit::<bindings::clk_init_data>::zeroed().assume_init() };
         Self(up)
+    }
+
+    /// Set the name config of the clk_init_data
+    ///
+    /// It will automatically set the num_parents to the length of parent_names.
+    pub fn name_config(mut self, name: &str, parent_names: impl IntoIterator<Item = &str>) -> Self {
+        self.0.name = CString::new(name).unwrap();
+        let c_parents: Vec<CString> = parent_names
+            .iter()
+            .map(|s| CString::new(s).unwrap())
+            .collect();
+        self.num_parents = c_parents.len();
+        self
+    }
+
+    pub fn ops(mut self, ops: ClkOps) -> Self {
+        self.0.ops = ops.as_ptr();
+        self
+    }
+
+    pub fn flags(mut self, flags: u32) -> Self {
+        self.0.flags = flags;
+        self
+    }
+    /// Create ClkInitData from raw ptr
+    ///
+    /// # Safety
+    ///
+    /// The pointer must be valid.
+    pub unsafe fn from_raw(ptr: *const bindings::clk_init_data) -> Self {
+        let ptr = ptr.cast::<Self>();
+        *ptr
+    }
+}
+
+/// Represents `struct clk_ops`
+pub struct ClkOps(Opaque<bindings::clk_ops>);
+
+// TODO: Create (new) from functions ptr
+impl ClkOps {
+    // TODO!
+    pub fn from_raw(ptr: *const bindings::clk_ops) -> Self {
+        // let ptr = ptr.cast::<Self>();
+        // unsafe { *ptr }
+        unimplemented!()
     }
 
     /// Set the name config of the clk_init_data
