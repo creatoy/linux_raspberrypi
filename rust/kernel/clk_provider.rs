@@ -7,7 +7,7 @@
 use crate::{
     bindings,
     error::{from_result, to_result, Result},
-    str::{CStr, CString},
+    str::CStr,
     types::{ForeignOwnable, Opaque},
 };
 use alloc::vec::Vec;
@@ -100,19 +100,23 @@ impl ClkInitData {
     /// Set the name config of the clk_init_data
     ///
     /// It will automatically set the num_parents to the length of parent_names.
-    pub fn name_config(mut self, name: &CStr, parent_names: Vec<&CStr>) -> Self {
+    pub fn name_config(mut self, name: &CStr, parent_names: Vec<&'static CStr>) -> Self {
         self.0.name = name.as_char_ptr();
         self.0.num_parents = parent_names.len() as u8;
         self.0.parent_names = parent_names
             .into_iter()
             .map(|s| s.as_char_ptr())
-            .collect::<Vec<_>>()
+            .collect::<Vec<*const i8>>()
             .as_ptr();
         self
     }
 
-    pub fn ops(mut self, ops: impl ClkOps) -> Self {
-        self.0.ops = ops;
+    pub fn ops<T>(mut self, ops: T) -> Self
+    where
+        T: ClkOps,
+    {
+        let ops = Adapter::<T>::build();
+        self.0.ops = ops as *const bindings::clk_ops;
         self
     }
 
@@ -358,7 +362,7 @@ impl<T: ClkOps> Adapter<T> {
     unsafe extern "C" fn init_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
         from_result(|| {
             let hw = unsafe { ClkHw::from_raw(clk_hw) };
-            T::init(&hw)
+            T::init(&hw).and(Ok(0))
         })
     }
 
