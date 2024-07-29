@@ -6,7 +6,6 @@
 
 use crate::{
     bindings,
-    clk_provider::ClkHw,
     error::{to_result, Result},
     str::CStr,
     types::Opaque,
@@ -54,8 +53,10 @@ impl Clk {
     }
 
     pub fn name(&self) -> &CStr {
-        // SAFETY: call ffi and ptr is valid
-        unsafe { CStr::from_char_ptr(bindings::__clk_get_name(self.0.get())) }
+        // SAFETY: if clk is valid, name is valid. name must be a UTF-8 string.
+        unsafe {
+            CStr::from_char_ptr(bindings::__clk_get_name(self.0.get()))
+        }
     }
 }
 

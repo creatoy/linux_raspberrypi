@@ -221,6 +221,10 @@ fn clk_bcm2835_i2c_recalc_rate(hw: &mut ClkHw, parent_rate: u32) -> u32 {
     parent_rate.div_ceil(divider)
 }
 
+struct ClkBcm2835I2cOps;
+
+impl ClkOps for ClkBcm2835I2cOps {}
+
 impl kernel::Module for Bcm2835I2cDevice {
     fn init(_module: &'static ThisModule) -> Result<Self> {
         pr_info!("BCM2835 i2c bus device driver (init)\n");
