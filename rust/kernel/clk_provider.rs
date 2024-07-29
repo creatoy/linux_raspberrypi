@@ -108,7 +108,7 @@ impl ClkInitData {
             for s in parent_names {
                 vec.try_push(s.as_char_ptr());
             }
-            vec
+            vec.as_ptr()
         };
         self
     }
