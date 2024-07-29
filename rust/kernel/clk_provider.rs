@@ -100,7 +100,7 @@ impl ClkInitData {
     /// Set the name config of the clk_init_data
     ///
     /// It will automatically set the num_parents to the length of parent_names.
-    pub fn name_config(mut self, name: &CStr, parent_names: &[CStr]) -> Self {
+    pub fn name_config(mut self, name: &CStr, parent_names: Vec<&CStr>) -> Self {
         self.0.name = name.as_char_ptr();
         self.0.num_parents = parent_names.len() as u8;
         self.0.parent_names = parent_names
