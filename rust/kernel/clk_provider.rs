@@ -6,10 +6,11 @@
 
 use crate::{
     bindings,
-    error::{from_result, Result},
+    error::{from_result, to_result, Result},
     str::{CStr, CString},
     types::{ForeignOwnable, Opaque},
 };
+use alloc::vec::Vec;
 use core::{marker::PhantomData, mem::MaybeUninit};
 use macros::vtable;
 /// Represents `struct clk_core`
@@ -43,13 +44,9 @@ impl ClkHw {
         self.0.get()
     }
 
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &CStr {
         // SAFETY: if clk_hw is valid, name is valid. name must be UTF-8 string.
-        unsafe {
-            CStr::from_char_ptr(bindings::__clk_hw_get_name(self.0.get()))
-                .to_str()
-                .unwrap()
-        }
+        unsafe { CStr::from_char_ptr(bindings::clk_hw_get_name(self.0.get())) }
     }
     // Register one clock lookup for a struct clk_hw
     pub fn register_clkdev(&mut self, con_id: &'static CStr, dev_id: &'static CStr) -> Result {
@@ -103,26 +100,23 @@ impl ClkInitData {
     /// Set the name config of the clk_init_data
     ///
     /// It will automatically set the num_parents to the length of parent_names.
-    pub fn name_config(
-        mut self,
-        name: &str,
-        parent_names: impl IntoIterator<Item = String>,
-    ) -> Self {
-        self.0.name = CString::new(name).unwrap();
-        let c_parents = parent_names
-            .iter()
-            .map(|s| CString::new(s).unwrap())
-            .collect();
-        self.num_parents = c_parents.len();
+    pub fn name_config(mut self, name: &CStr, parent_names: &[CStr]) -> Self {
+        self.0.name = name.as_char_ptr();
+        self.0.num_parents = parent_names.len() as u8;
+        self.0.parent_names = parent_names
+            .into_iter()
+            .map(|s| s.as_char_ptr())
+            .collect::<Vec<_>>()
+            .as_ptr();
         self
     }
 
     pub fn ops(mut self, ops: impl ClkOps) -> Self {
-        self.0.ops = ops.as_ptr();
+        self.0.ops = ops;
         self
     }
 
-    pub fn flags(mut self, flags: u32) -> Self {
+    pub fn flags(mut self, flags: u64) -> Self {
         self.0.flags = flags;
         self
     }
@@ -270,10 +264,8 @@ impl<T: ClkOps> Adapter<T> {
         rate: u64,
         parent_rate: *mut u64,
     ) -> core::ffi::c_long {
-        from_result(|| {
-            let hw = unsafe { ClkHw::from_raw(clk_hw) };
-            T::round_rate(&hw, rate, unsafe { &mut *parent_rate })
-        })
+        let hw = unsafe { ClkHw::from_raw(clk_hw) };
+        T::round_rate(&hw, rate, unsafe { &mut *parent_rate })
     }
 
     unsafe extern "C" fn determine_rate_callback(
@@ -290,7 +282,7 @@ impl<T: ClkOps> Adapter<T> {
     ) -> core::ffi::c_int {
         from_result(|| {
             let hw = unsafe { ClkHw::from_raw(clk_hw) };
-            T::set_parent(&hw, index)
+            T::set_parent(&hw, index).and(Ok(0))
         })
     }
 
@@ -306,7 +298,7 @@ impl<T: ClkOps> Adapter<T> {
     ) -> core::ffi::c_int {
         from_result(|| {
             let hw = unsafe { ClkHw::from_raw(clk_hw) };
-            T::set_rate(&hw, rate, parent_rate)
+            T::set_rate(&hw, rate, parent_rate).and(Ok(0))
         })
     }
 
@@ -318,7 +310,7 @@ impl<T: ClkOps> Adapter<T> {
     ) -> core::ffi::c_int {
         from_result(|| {
             let hw = unsafe { ClkHw::from_raw(clk_hw) };
-            T::set_rate_and_parent(&hw, rate, parent_rate, index)
+            T::set_rate_and_parent(&hw, rate, parent_rate, index).and(Ok(0))
         })
     }
 
@@ -341,7 +333,7 @@ impl<T: ClkOps> Adapter<T> {
     ) -> core::ffi::c_int {
         from_result(|| {
             let hw = unsafe { ClkHw::from_raw(clk_hw) };
-            T::set_phase(&hw, degrees)
+            T::set_phase(&hw, degrees).and(Ok(0))
         })
     }
 
@@ -359,7 +351,7 @@ impl<T: ClkOps> Adapter<T> {
     ) -> core::ffi::c_int {
         from_result(|| {
             let hw = unsafe { ClkHw::from_raw(clk_hw) };
-            T::set_duty_cycle(&hw, duty)
+            T::set_duty_cycle(&hw, duty).and(Ok(0))
         })
     }
 

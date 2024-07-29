@@ -52,12 +52,10 @@ impl Clk {
         Ok(())
     }
 
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> &CStr {
         // SAFETY: if clk is valid, name is valid. name must be a UTF-8 string.
         unsafe {
             CStr::from_char_ptr(bindings::__clk_get_name(self.0.get()))
-                .to_str()
-                .unwrap()
         }
     }
 }
