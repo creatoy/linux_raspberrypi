@@ -171,28 +171,36 @@ pub trait ClkOps {
     /// parent clock that should be used to provide the clock rate.
     fn determine_rate(hw: &ClkHw, req: *mut bindings::clk_rate_request) -> i32;
     /// Change the input source of this clock
-    fn set_parent(hw: &ClkHw, index: u8) -> i32;
+    /// Returns 0 on success, -EERROR otherwise.
+    fn set_parent(hw: &ClkHw, index: u8) -> Result;
     /// Queries the hardware to determine the parent of a clock
     fn get_parent(hw: &ClkHw) -> u8;
     /// Change the rate of this clock
-    fn set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> i32;
+    /// Returns 0 on success, -EERROR otherwise.
+    fn set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result;
     /// Change the rate and the parent of this clock
-    fn set_rate_and_parent(hw: &ClkHw, rate: u64, parent_rate: u64, index: u8) -> i32;
+    /// Returns 0 on success, -EERROR otherwise.
+    fn set_rate_and_parent(hw: &ClkHw, rate: u64, parent_rate: u64, index: u8) -> Result;
     /// Recalculate the accuracy of this clock
     fn recalc_accuracy(hw: &ClkHw, parent_accuracy: u64) -> u64;
     /// Queries the hardware to get the current phase of a clock
+    /// error codes on failure.
     fn get_phase(hw: &ClkHw) -> i32;
     /// Shift the phase this clock signal in degrees specified by the second argument
-    fn set_phase(hw: &ClkHw, degrees: i32) -> i32;
+    /// Returns 0 on success, -EERROR otherwise.
+    fn set_phase(hw: &ClkHw, degrees: i32) -> Result;
     /// Queries the hardware to get the current duty cycle ratio of a clock
     fn get_duty_cycle(hw: &ClkHw, duty: *mut bindings::clk_duty) -> i32;
     /// Apply the duty cycle ratio to this clock signal specified by the numerator (2nd argurment) and denominator (3rd  argument)
-    fn set_duty_cycle(hw: &ClkHw, duty: *mut bindings::clk_duty) -> i32;
+    /// Returns 0 on success, -EERROR otherwise.
+    fn set_duty_cycle(hw: &ClkHw, duty: *mut bindings::clk_duty) -> Result;
     /// Perform platform-specific initialization magic
-    fn init(hw: &ClkHw) -> i32;
+    /// Returns 0 on success, -EERROR otherwise.
+    fn init(hw: &ClkHw) -> Result;
     /// Free any resource allocated by init
     fn terminate(hw: &ClkHw);
     /// Set up type-specific debugfs entries for this clock
+    /// Returns 0 on success, -EERROR otherwise.
     fn debug_init(hw: &ClkHw, dentry: *mut bindings::dentry);
 }
 
@@ -280,8 +288,10 @@ impl<T: ClkOps> Adapter<T> {
         clk_hw: *mut bindings::clk_hw,
         index: u8,
     ) -> core::ffi::c_int {
-        let hw = unsafe { ClkHw::from_raw(clk_hw) };
-        T::set_parent(&hw, index)
+        from_result(|| {
+            let hw = unsafe { ClkHw::from_raw(clk_hw) };
+            T::set_parent(&hw, index)
+        })
     }
 
     unsafe extern "C" fn get_parent_callback(clk_hw: *mut bindings::clk_hw) -> bindings::u8_ {
@@ -306,8 +316,10 @@ impl<T: ClkOps> Adapter<T> {
         parent_rate: u64,
         index: u8,
     ) -> core::ffi::c_int {
-        let hw = unsafe { ClkHw::from_raw(clk_hw) };
-        T::set_rate_and_parent(&hw, rate, parent_rate, index)
+        from_result(|| {
+            let hw = unsafe { ClkHw::from_raw(clk_hw) };
+            T::set_rate_and_parent(&hw, rate, parent_rate, index)
+        })
     }
 
     unsafe extern "C" fn recalc_accuracy_callback(
@@ -327,8 +339,10 @@ impl<T: ClkOps> Adapter<T> {
         clk_hw: *mut bindings::clk_hw,
         degrees: i32,
     ) -> core::ffi::c_int {
-        let hw = unsafe { ClkHw::from_raw(clk_hw) };
-        T::set_phase(&hw, degrees)
+        from_result(|| {
+            let hw = unsafe { ClkHw::from_raw(clk_hw) };
+            T::set_phase(&hw, degrees)
+        })
     }
 
     unsafe extern "C" fn get_duty_cycle_callback(
@@ -343,13 +357,17 @@ impl<T: ClkOps> Adapter<T> {
         clk_hw: *mut bindings::clk_hw,
         duty: *mut bindings::clk_duty,
     ) -> core::ffi::c_int {
-        let hw = unsafe { ClkHw::from_raw(clk_hw) };
-        T::set_duty_cycle(&hw, duty)
+        from_result(|| {
+            let hw = unsafe { ClkHw::from_raw(clk_hw) };
+            T::set_duty_cycle(&hw, duty)
+        })
     }
 
     unsafe extern "C" fn init_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
-        let hw = unsafe { ClkHw::from_raw(clk_hw) };
-        T::init(&hw)
+        from_result(|| {
+            let hw = unsafe { ClkHw::from_raw(clk_hw) };
+            T::init(&hw)
+        })
     }
 
     unsafe extern "C" fn terminate_callback(clk_hw: *mut bindings::clk_hw) {
