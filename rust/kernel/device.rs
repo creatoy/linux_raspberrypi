@@ -213,7 +213,8 @@ impl Device {
     /// Allocate a new clock, register it and return an opaque cookie
     pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<&mut Clk> {
         // SAFETY: call ffi and ptr is valid
-        let raw = unsafe { from_err_ptr(bindings::devm_clk_register(self.ptr, clk_hw.as_ptr()))? };
+        let raw =
+            unsafe { from_err_ptr(bindings::devm_clk_register(self.ptr, clk_hw.as_mut_ptr()))? };
         Ok(Clk::from_raw(raw))
     }
 }

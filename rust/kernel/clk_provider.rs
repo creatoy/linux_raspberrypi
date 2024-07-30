@@ -40,7 +40,7 @@ impl ClkHw {
 
     /// Returns a raw pointer to the inner C struct.
     #[inline]
-    pub fn as_ptr(&self) -> *mut bindings::clk_hw {
+    pub fn as_mut_ptr(&self) -> *mut bindings::clk_hw {
         self.0.get()
     }
 
@@ -48,6 +48,13 @@ impl ClkHw {
         // SAFETY: if clk_hw is valid, name is valid. name must be UTF-8 string.
         unsafe { CStr::from_char_ptr(bindings::clk_hw_get_name(self.0.get())) }
     }
+
+    pub fn set_init_data(&mut self, init_data: &ClkInitData) {
+        // SAFETY: call ffi and ptr is valid
+        let hw = unsafe { &mut *self.0.get() };
+        hw.init = init_data.as_ptr();
+    }
+
     // Register one clock lookup for a struct clk_hw
     pub fn register_clkdev(&mut self, con_id: &'static CStr, dev_id: &'static CStr) -> Result {
         let ret = unsafe {
@@ -100,16 +107,10 @@ impl ClkInitData {
     /// Set the name config of the clk_init_data
     ///
     /// It will automatically set the num_parents to the length of parent_names.
-    pub fn name_config(mut self, name: &CStr, parent_names: Vec<&'static CStr>) -> Self {
+    pub fn name_config(mut self, name: &CStr, parent_names: &[*const i8]) -> Self {
         self.0.name = name.as_char_ptr();
         self.0.num_parents = parent_names.len() as u8;
-        self.0.parent_names = {
-            let mut vec: Vec<*const i8> = Vec::new();
-            for s in parent_names {
-                vec.try_push(s.as_char_ptr());
-            }
-            vec.as_ptr()
-        };
+        self.0.parent_names = parent_names.as_ptr();
         self
     }
 
@@ -134,6 +135,12 @@ impl ClkInitData {
     pub unsafe fn from_raw<'a>(ptr: *const bindings::clk_init_data) -> &'a Self {
         let ptr = ptr.cast::<Self>();
         unsafe { &*ptr }
+    }
+
+    /// Returns a raw pointer to the inner C struct.
+    #[inline]
+    pub fn as_ptr(&self) -> *const bindings::clk_init_data {
+        &self.0
     }
 }
 
