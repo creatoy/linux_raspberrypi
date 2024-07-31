@@ -2,6 +2,7 @@
 
 //! BCM2835 master mode driver
 
+use kernel::clk_provider::{ClkInitData, ClkOps};
 use kernel::prelude::*;
 
 use kernel::bindings;
@@ -150,7 +151,13 @@ struct ClkBcm2835I2c {
     i2c_dev: Bcm2835I2cDev,
 }
 
-fn clk_bcm2835_i2c_calc_divider(rate: u32, parent_rate: u32) -> Result<u32> {
+impl Clk for ClkBcm2835I2c {
+    fn new(hw: ClkHw, i2c_dev: Bcm2835I2cDev) -> Self {
+        ClkBcm2835I2c { hw, i2c_dev }
+    }
+}
+
+fn clk_bcm2835_i2c_calc_divider(rate: u64, parent_rate: u64) -> Result<u64> {
     let mut divider = parent_rate.div_ceil(rate);
 
     /*
@@ -168,7 +175,7 @@ fn clk_bcm2835_i2c_calc_divider(rate: u32, parent_rate: u32) -> Result<u32> {
     return Ok(divider);
 }
 
-fn clk_bcm2835_i2c_set_rate(hw: &mut ClkHw, rate: u32, parent_rate: u32) -> Result<()> {
+fn clk_bcm2835_i2c_set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result<()> {
     let div = to_clk_bcm2835_i2c(hw);
     let divider = clk_bcm2835_i2c_calc_divider(rate, parent_rate)?;
 
@@ -208,13 +215,13 @@ fn clk_bcm2835_i2c_set_rate(hw: &mut ClkHw, rate: u32, parent_rate: u32) -> Resu
     Ok(())
 }
 
-fn clk_bcm2835_i2c_round_rate(hw: &mut ClkHw, rate: u32, parent_rate: &mut u32) -> u32 {
+fn clk_bcm2835_i2c_round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i64 {
     let divider = clk_bcm2835_i2c_calc_divider(rate, *parent_rate).unwrap();
 
     parent_rate.div_ceil(divider)
 }
 
-fn clk_bcm2835_i2c_recalc_rate(hw: &mut ClkHw, parent_rate: u32) -> u32 {
+fn clk_bcm2835_i2c_recalc_rate(hw: &ClkHw, parent_rate: u64) -> u32 {
     let div = to_clk_bcm2835_i2c(hw);
     let divider = bcm2835_i2c_readl(&mut div.i2c_dev, BCM2835_I2C_DIV);
 
@@ -223,7 +230,29 @@ fn clk_bcm2835_i2c_recalc_rate(hw: &mut ClkHw, parent_rate: u32) -> u32 {
 
 struct ClkBcm2835I2cOps;
 
-impl ClkOps for ClkBcm2835I2cOps {}
+#[vtable]
+impl ClkOps for ClkBcm2835I2cOps {
+    fn set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result<()> {
+        clk_bcm2835_i2c_set_rate(hw, rate, parent_rate)
+    }
+
+    fn round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i64 {
+        clk_bcm2835_i2c_round_rate(hw, rate, parent_rate)
+    }
+
+    fn recalc_rate(hw: &ClkHw, parent_rate: u64) -> u32 {
+        clk_bcm2835_i2c_recalc_rate(hw, parent_rate)
+    }
+}
+
+fn bcm2835_i2c_register_div(dev: &mut Device, mclk: &Clk, i2c_dev: &mut Bcm2835I2cDev) -> Result<&Clk> {
+    let name:&CStr = format!("i2c_div_{}", dev.name());
+    let mclk_name = mclk.name();
+    let parent_names = &[mclk_name];
+
+    let init = ClkInitData::new().ops::<ClkBcm2835I2cOps>().name_config(name, parent_names).flags(0);
+
+}
 
 impl kernel::Module for Bcm2835I2cDevice {
     fn init(_module: &'static ThisModule) -> Result<Self> {

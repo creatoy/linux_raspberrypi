@@ -6,7 +6,10 @@
 
 use crate::{
     bindings,
+    clk::Clk,
+    device::Device,
     error::{from_result, to_result, Result},
+    prelude::ENOMEM,
     str::CStr,
     types::{ForeignOwnable, Opaque},
 };
@@ -60,6 +63,19 @@ impl ClkHw {
         to_result(ret)
     }
 
+    // Register one devm_clk for a struct clk_hw
+    // unimplemented!();
+    pub fn devm_clk_register(&mut self, dev: &mut Device) -> Result<&mut Clk> {
+        unsafe {
+            let raw_clk = bindings::devm_clk_register(self.0.get(), dev.as_ptr());
+            if raw_clk.is_null() {
+                return Err(-ENOMEM);
+            }
+            let clk = Clk::from_raw(raw_clk);
+            clk
+        }
+    }
+
     // How to implement clk_hw api?
     /*
     pub fn prepare_enable(&mut self) -> Result {
@@ -100,20 +116,20 @@ impl ClkInitData {
     /// Set the name config of the clk_init_data
     ///
     /// It will automatically set the num_parents to the length of parent_names.
-    pub fn name_config(mut self, name: &CStr, parent_names: Vec<&'static CStr>) -> Self {
+    pub fn name_config(mut self, name: &CStr, parent_names: &[&'static CStr]) -> Self {
         self.0.name = name.as_char_ptr();
         self.0.num_parents = parent_names.len() as u8;
         self.0.parent_names = {
             let mut vec: Vec<*const i8> = Vec::new();
             for s in parent_names {
-                vec.try_push(s.as_char_ptr());
+                let _ = vec.try_push(s.as_char_ptr());
             }
             vec.as_ptr()
         };
         self
     }
 
-    pub fn ops<T>(mut self, _ops: T) -> Self
+    pub fn ops<T>(mut self) -> Self
     where
         T: ClkOps,
     {
