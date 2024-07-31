@@ -221,11 +221,9 @@ impl Device {
     }
 
     /// Allocate a devm memory and return the corresponding pointer.
-    pub fn devm_kmalloc<T>(&self, size: usize) -> Result<*mut T> {
+    pub fn devm_kzalloc<T>(&self) -> Result<*mut T> {
         let size = core::mem::size_of::<T>();
-        let ptr = unsafe {
-            bindings::devm_kmalloc(self.raw_device(), size, GFP_KERNEL);
-        };
+        let ptr = unsafe { bindings::devm_kmalloc(self.ptr, size, bindings::GFP_KERNEL) };
         if ptr.is_null() {
             return Err(ENOMEM);
         }

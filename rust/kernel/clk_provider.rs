@@ -7,14 +7,13 @@
 use crate::{
     bindings,
     clk::Clk,
-    device::Device,
+    device::{Device, RawDevice},
     error::{from_result, to_result, Result},
     prelude::ENOMEM,
     str::CStr,
     types::{ForeignOwnable, Opaque},
 };
-use alloc::vec::Vec;
-use core::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
+use core::{marker::PhantomData, mem::MaybeUninit};
 use macros::vtable;
 /// Represents `struct clk_core`
 ///
@@ -74,12 +73,12 @@ impl ClkHw {
     // unimplemented!();
     pub fn devm_clk_register(&mut self, dev: &mut Device) -> Result<&mut Clk> {
         unsafe {
-            let raw_clk = bindings::devm_clk_register(self.0.get(), dev.as_ptr());
+            let raw_clk = bindings::devm_clk_register(dev.raw_device(), self.0.get());
             if raw_clk.is_null() {
-                return Err(-ENOMEM);
+                return Err(ENOMEM);
             }
             let clk = Clk::from_raw(raw_clk);
-            clk
+            Ok(clk)
         }
     }
 

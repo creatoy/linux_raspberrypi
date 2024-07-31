@@ -319,7 +319,6 @@ impl Bcm2835I2cDev {
         }
     }
 }
-}
 
 impl kernel::Module for Bcm2835I2cDevice {
     fn init(_module: &'static ThisModule) -> Result<Self> {
