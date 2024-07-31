@@ -2,19 +2,24 @@
 
 //! BCM2835 master mode driver
 
-use kernel::c_str;
-use kernel::clk_provider::ClkInitData;
 use kernel::prelude::*;
 
 use kernel::bindings;
 use kernel::clk::Clk;
 use kernel::clk_provider::ClkHw;
+use kernel::clk_provider::ClkInitData;
 use kernel::completion::Completion;
-use kernel::container_of;
 use kernel::device::Device;
 use kernel::device::RawDevice;
+use kernel::driver;
 use kernel::io_mem::IoMem;
+use kernel::platform;
 use kernel::str::CString;
+
+use kernel::c_str;
+use kernel::container_of;
+use kernel::define_of_id_table;
+use kernel::module_platform_driver;
 
 /// I2C 地址预留空间
 const I2C_SIZE: usize = 0x100;
@@ -105,7 +110,9 @@ struct Bcm2835I2cDev {
 
 struct Bcm2835I2cData {}
 
-struct Bcm2835I2cDevice;
+struct Bcm2835I2cDevice {
+    _drv: Pin<Box<platform::Registration<Bcm2835I2cDriver>>>,
+}
 
 module! {
     type: Bcm2835I2cDevice,
@@ -270,11 +277,38 @@ struct ClkBcm2835I2cOps;
 
 // impl ClkOps for ClkBcm2835I2cOps {}
 
+struct Bcm2835I2cDriver;
+
+impl platform::Driver for Bcm2835I2cDriver {
+    fn probe(
+        dev: &mut platform::Device,
+        id_info: core::prelude::v1::Option<&Self::IdInfo>,
+    ) -> Result<Self::Data> {
+        // let pdev = dev.
+        // TODO: initialize and probe i2c driver
+        Ok(())
+    }
+
+    fn remove(_data: &Self::Data) -> Result {
+        // TODO: remove i2c driver
+        Ok(())
+    }
+
+    // TODO: complete the table
+    // define_of_id_table! {(), [
+    //     (of::DeviceId::Compatible(b"brcm,bcm2711-i2c"), None),
+    //     (of::DeviceId::Compatible(b"brcm,bcm2835-i2c"), None),
+    // ]}
+}
+
 impl kernel::Module for Bcm2835I2cDevice {
-    fn init(_module: &'static ThisModule) -> Result<Self> {
+    fn init(module: &'static ThisModule) -> Result<Self> {
         pr_info!("BCM2835 i2c bus device driver (init)\n");
 
-        Ok(Bcm2835I2cDevice {})
+        let _drv =
+            platform::Registration::<Bcm2835I2cDriver>::new_pinned(c_str!("i2c-bcm2835"), module)?;
+
+        Ok(Bcm2835I2cDevice { _drv })
     }
 }
 
