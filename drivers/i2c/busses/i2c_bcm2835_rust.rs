@@ -261,26 +261,27 @@ impl Bcm2835I2cDev {
     ) -> Result<&mut Clk> {
         let name = CString::try_from_fmt(fmt!("{}_div", dev.name()))?;
         let mclk_name = mclk.name();
-
+        let parent_names = [mclk_name.as_char_ptr()];
         // Here: impl device.rs Device struct
         // devm_alloc::<ClkBcm2835I2c>
-        unsafe {
-            let p = dev.devm_kzalloc::<ClkBcm2835I2c>()?;
-            let clk_i2c = ClkBcm2835I2c::from_raw(p);
-        }
-        let parent_names = [mclk_name.as_char_ptr()];
-        let init_data = ClkInitData::new()
-            .name_config(&name, &parent_names)
-            .ops::<ClkBcm2835I2cOps>()
-            .flags(0);
-        clk_i2c.hw.set_init_data(&init_data);
-        clk_i2c.i2c_dev = i2c_dev;
+        let clk_i2c = unsafe {
+            let raw_ptr = dev.devm_kmalloc::<ClkBcm2835I2c>()?;
+            let clk_i2c = ClkBcm2835I2c::from_raw(raw_ptr);
+            let init_data = ClkInitData::new()
+                .name_config(&name, &parent_names)
+                .ops::<ClkBcm2835I2cOps>()
+                .flags(0);
+            clk_i2c.hw.set_init_data(&init_data);
+            clk_i2c.i2c_dev = i2c_dev;
 
-        clk_i2c.hw.register_clkdev(c_str!("div"), dev.name())?;
+            clk_i2c.hw.register_clkdev(c_str!("div"), dev.name())?;
+
+            clk_i2c
+        };
 
         // Ensure these objects live long enough
         // TODO: Try to achieve this in a more elegant way
-        let _ = (name, parent_names, init_data);
+        // let _ = (name, parent_names, init_data);
 
         dev.clk_register(&mut clk_i2c.hw)
     }
