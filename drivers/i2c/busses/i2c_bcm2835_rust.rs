@@ -2,7 +2,8 @@
 
 //! BCM2835 master mode driver
 
-use kernel::clk_provider::{ClkInitData, ClkOps};
+use kernel::c_str;
+use kernel::clk_provider::ClkInitData;
 use kernel::prelude::*;
 
 use kernel::bindings;
@@ -13,6 +14,7 @@ use kernel::container_of;
 use kernel::device::Device;
 use kernel::device::RawDevice;
 use kernel::io_mem::IoMem;
+use kernel::str::CString;
 
 /// I2C 地址预留空间
 const I2C_SIZE: usize = 0x100;
@@ -68,31 +70,37 @@ pub const BCM2835_I2C_CDIV_MAX: u32 = 0xFFFE;
 /// SMBUs-recommended 35ms
 pub const CLK_TOUT_MS: u32 = 35;
 
+/// Maximum number of debug messages
+pub const BCM2835_DEBUG_MAX: usize = 512;
+
 /// TODO: Wait for implemented Debug feature
 struct Bcm2835Debug {
-    // msg: I2cMsgFlags,
+    // TODO: Implement i2c_msg
+    // msg:
     msg_idx: i32,
-    remian: usize,
+    remain: usize,
     status: u32,
 }
 
 /// TODO: Wait for implemented device struct
 struct Bcm2835I2cDev {
     dev: Device,
-    irq: i32,
     regs: IoMem<I2C_SIZE>,
-    // adapter: Adapter<Bcm2835I2cDev>,
+    irq: i32,
+    // TODO: Implement adapter
+    // adapter:
     completion: Completion,
-    // curr_msg: I2cMsg,
+    // TODO: Implement i2c_msg
+    // curr_msg:
     bus_clk: Clk,
     num_msgs: i32,
     // omit debug fields for now.
-    // msg_err: u32,
-    // msg_buf: Vec<u8>,
-    // msg_buf_remaining: usize,
-    // debug: [Option<BCM2835_Debug>; 4]
-    // debug_num: u32,
-    // debug_num_msgs: u32,
+    msg_err: u32,
+    // msg_buf: [u8],
+    msg_buf_remaining: usize,
+    debug: [Bcm2835Debug; BCM2835_DEBUG_MAX],
+    debug_num: u32,
+    debug_num_msgs: u32,
 }
 
 struct Bcm2835I2cData {}
@@ -121,12 +129,41 @@ module! {
 }
 
 impl Bcm2835I2cDevice {
-    fn register_div(&mut self, dev: &mut Device, mclk: &Clk) -> Result<&mut Clk> {
-        let name = dev.name();
+    fn register_div(
+        &mut self,
+        dev: &'static mut Device,
+        mclk: &Clk,
+        i2c_dev: &'static mut Bcm2835I2cDev,
+    ) -> Result<&mut Clk> {
+        let name = CString::try_from_fmt(fmt!("{}_div", dev.name()))?;
         let mclk_name = mclk.name();
 
+        let p = unsafe {
+            bindings::devm_kmalloc(
+                dev.raw_device(),
+                core::mem::size_of::<ClkBcm2835I2c>(),
+                bindings::GFP_KERNEL | bindings::__GFP_ZERO,
+            )
+        };
+        if p.is_null() {
+            return Err(ENOMEM);
+        }
+        let clk_i2c = ClkBcm2835I2c::from_raw(p);
+        let parent_names = [mclk_name.as_char_ptr()];
         // TODO: clk_ops implementation
-        todo!()
+        let init_data = ClkInitData::new()
+            .name_config(&name, &parent_names)
+            .flags(0);
+        clk_i2c.hw.set_init_data(&init_data);
+        clk_i2c.i2c_dev = i2c_dev;
+
+        clk_i2c.hw.register_clkdev(c_str!("div"), dev.name())?;
+
+        // Ensure these objects live long enough
+        // TODO: Try to achieve this in a more elegant way
+        let _ = (name, parent_names, init_data);
+
+        dev.clk_register(&mut clk_i2c.hw)
     }
 }
 
@@ -148,7 +185,14 @@ fn to_clk_bcm2835_i2c(hw_ptr: &ClkHw) -> &mut ClkBcm2835I2c {
 
 struct ClkBcm2835I2c {
     hw: ClkHw,
-    i2c_dev: Bcm2835I2cDev,
+    i2c_dev: &'static mut Bcm2835I2cDev,
+}
+
+impl ClkBcm2835I2c {
+    fn from_raw<'a>(ptr: *mut core::ffi::c_void) -> &'a mut Self {
+        let prt = ptr.cast::<Self>();
+        unsafe { &mut *prt }
+    }
 }
 
 impl Clk for ClkBcm2835I2c {
@@ -243,15 +287,6 @@ impl ClkOps for ClkBcm2835I2cOps {
     fn recalc_rate(hw: &ClkHw, parent_rate: u64) -> u32 {
         clk_bcm2835_i2c_recalc_rate(hw, parent_rate)
     }
-}
-
-fn bcm2835_i2c_register_div(dev: &mut Device, mclk: &Clk, i2c_dev: &mut Bcm2835I2cDev) -> Result<&Clk> {
-    let name:&CStr = format!("i2c_div_{}", dev.name());
-    let mclk_name = mclk.name();
-    let parent_names = &[mclk_name];
-
-    let init = ClkInitData::new().ops::<ClkBcm2835I2cOps>().name_config(name, parent_names).flags(0);
-
 }
 
 impl kernel::Module for Bcm2835I2cDevice {
