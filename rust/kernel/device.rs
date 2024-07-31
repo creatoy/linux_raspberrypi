@@ -218,12 +218,22 @@ impl Device {
         Ok(Clk::from_raw(raw))
     }
 
-    /// Allocate a devm memory and return the corresponding pointer.
-    pub fn kzalloc<T>(&self) -> Result<*mut T> {
+    /// Allocate(kmalloc) and return the corresponding mutable pointer.
+    pub fn kmalloc<T>(&self) -> Result<*mut T> {
         let size = core::mem::size_of::<T>();
         let ptr = unsafe {
             bindings::devm_kmalloc(self.ptr, size, bindings::GFP_KERNEL | bindings::__GFP_ZERO)
         };
+        if ptr.is_null() {
+            return Err(ENOMEM);
+        }
+        Ok(ptr as *mut T)
+    }
+
+    /// Allocate(kzalloc) and return the corresponding mutable pointer.
+    pub fn kzalloc<T>(&self) -> Result<*mut T> {
+        let size = core::mem::size_of::<T>();
+        let ptr = unsafe {bindings::devm_kmalloc(self.ptr, size, bindings::GFP_KERNEL | bindings::__GFP_ZERO)};
         if ptr.is_null() {
             return Err(ENOMEM);
         }

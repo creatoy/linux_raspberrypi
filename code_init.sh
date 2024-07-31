@@ -10,7 +10,7 @@ if [ $? -ne 0 ]; then
 fi
 
 # Run the make command
-make llvm=1 rust-analyzer
+make ARCH=arm64 O=build_4b LLVM=-18 rust-analyzer
 
 # Check if the make command ran successfully
 if [ $? -ne 0 ]; then

@@ -13,7 +13,8 @@ use crate::{
     str::CStr,
     types::{ForeignOwnable, Opaque},
 };
-use core::{marker::PhantomData, mem::MaybeUninit};
+use core::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
+use kernel::prelude::*;
 use macros::vtable;
 
 /// Represents `struct clk_core`

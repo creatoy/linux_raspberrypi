@@ -54,7 +54,7 @@ pub mod init;
 pub mod io_buffer;
 pub mod io_mem;
 #[cfg(CONFIG_IOMMU_IO_PGTABLE)]
-pub mod io_pgtable;
+// pub mod io_pgtable;
 pub mod ioctl;
 pub mod iov_iter;
 pub mod irq;
