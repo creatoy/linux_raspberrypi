@@ -4,6 +4,8 @@
 //!
 //! C header: [`include/linux/device.h`](../../../../include/linux/device.h)
 
+use bindings::GFP_KERNEL;
+
 use crate::{
     bindings,
     clk::Clk,
@@ -216,6 +218,18 @@ impl Device {
         let raw =
             unsafe { from_err_ptr(bindings::devm_clk_register(self.ptr, clk_hw.as_mut_ptr()))? };
         Ok(Clk::from_raw(raw))
+    }
+
+    /// Allocate a devm memory and return the corresponding pointer.
+    pub fn devm_kmalloc<T>(&self, size: usize) -> Result<*mut T> {
+        let size = core::mem::size_of::<T>();
+        let ptr = unsafe {
+            bindings::devm_kmalloc(self.raw_device(), size, GFP_KERNEL);
+        };
+        if ptr.is_null() {
+            return Err(ENOMEM);
+        }
+        Ok(ptr as *mut T)
     }
 }
 
