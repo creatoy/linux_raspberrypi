@@ -12,7 +12,9 @@ use crate::{
 };
 use alloc::vec::Vec;
 use core::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
+use kernel::prelude::*;
 use macros::vtable;
+
 /// Represents `struct clk_core`
 ///
 /// # Invariants
@@ -151,64 +153,102 @@ pub trait ClkOps {
     type Data: ForeignOwnable + Send + Sync = ();
 
     /// Prepare the clock for enabling.
-    fn prepare(hw: &ClkHw) -> i32;
+    fn prepare(hw: &ClkHw) -> i32 {
+        0
+    }
     /// Release the clock from its prepared state.
-    fn unprepare(hw: &ClkHw);
+    fn unprepare(hw: &ClkHw) {}
     /// Queries the hardware to determine if the clock is prepared.
-    fn is_prepared(hw: &ClkHw) -> i32;
+    fn is_prepared(hw: &ClkHw) -> i32 {
+        0
+    }
     /// Unprepare the clock atomically
-    fn unprepare_unused(hw: &ClkHw);
+    fn unprepare_unused(hw: &ClkHw) {}
     /// Enable the clock atomically
-    fn enable(hw: &ClkHw) -> i32;
+    fn enable(hw: &ClkHw) -> i32 {
+        0
+    }
     /// Disable the clock atomically
-    fn disable(hw: &ClkHw);
+    fn disable(hw: &ClkHw) {}
     /// Queries the hardware to determine if the clock is enabled
-    fn is_enabled(hw: &ClkHw) -> i32;
+    fn is_enabled(hw: &ClkHw) -> i32 {
+        0
+    }
     /// Disable the clock atomically
-    fn disable_unused(hw: &ClkHw);
+    fn disable_unused(hw: &ClkHw) {}
     /// Save the context of the clock in prepration for poweroff
-    fn save_context(hw: &ClkHw) -> i32;
+    fn save_context(hw: &ClkHw) -> i32 {
+        0
+    }
     /// Restore the context of the clock after a restoration of power
-    fn restore_context(hw: &ClkHw);
+    fn restore_context(hw: &ClkHw) {}
     /// Recalculate the rate of this clock, by querying hardware
-    fn recalc_rate(hw: &ClkHw, parent_rate: u64) -> u64;
+    fn recalc_rate(hw: &ClkHw, parent_rate: u64) -> u64 {
+        0
+    }
     /// Given a target rate as input, returns the closest rate actually supported by the clock
-    fn round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i64;
+    fn round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i64 {
+        0
+    }
     /// Given a target rate as input, returns the closest rate actually supported by the clock, and optionally the
     /// parent clock that should be used to provide the clock rate.
-    fn determine_rate(hw: &ClkHw, req: *mut bindings::clk_rate_request) -> i32;
+    fn determine_rate(hw: &ClkHw, req: *mut bindings::clk_rate_request) -> i32 {
+        0
+    }
     /// Change the input source of this clock
     /// Returns 0 on success, -EERROR otherwise.
-    fn set_parent(hw: &ClkHw, index: u8) -> Result;
+    fn set_parent(hw: &ClkHw, index: u8) -> Result {
+        Err(ENOTSUPP)
+    }
     /// Queries the hardware to determine the parent of a clock
-    fn get_parent(hw: &ClkHw) -> u8;
+    fn get_parent(hw: &ClkHw) -> u8 {
+        0
+    }
     /// Change the rate of this clock
     /// Returns 0 on success, -EERROR otherwise.
-    fn set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result;
+    fn set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result {
+        Err(ENOTSUPP)
+    }
     /// Change the rate and the parent of this clock
     /// Returns 0 on success, -EERROR otherwise.
-    fn set_rate_and_parent(hw: &ClkHw, rate: u64, parent_rate: u64, index: u8) -> Result;
+    fn set_rate_and_parent(hw: &ClkHw, rate: u64, parent_rate: u64, index: u8) -> Result {
+        Err(ENOTSUPP)
+    }
     /// Recalculate the accuracy of this clock
-    fn recalc_accuracy(hw: &ClkHw, parent_accuracy: u64) -> u64;
+    fn recalc_accuracy(hw: &ClkHw, parent_accuracy: u64) -> u64 {
+        0
+    }
     /// Queries the hardware to get the current phase of a clock
     /// error codes on failure.
-    fn get_phase(hw: &ClkHw) -> i32;
+    fn get_phase(hw: &ClkHw) -> Result<i32> {
+        Err(ENOTSUPP)
+    }
     /// Shift the phase this clock signal in degrees specified by the second argument
     /// Returns 0 on success, -EERROR otherwise.
-    fn set_phase(hw: &ClkHw, degrees: i32) -> Result;
+    fn set_phase(hw: &ClkHw, degrees: i32) -> Result {
+        Err(ENOTSUPP)
+    }
     /// Queries the hardware to get the current duty cycle ratio of a clock
-    fn get_duty_cycle(hw: &ClkHw, duty: *mut bindings::clk_duty) -> i32;
+    fn get_duty_cycle(hw: &ClkHw, duty: *mut bindings::clk_duty) -> i32 {
+        0
+    }
     /// Apply the duty cycle ratio to this clock signal specified by the numerator (2nd argurment) and denominator (3rd  argument)
     /// Returns 0 on success, -EERROR otherwise.
-    fn set_duty_cycle(hw: &ClkHw, duty: *mut bindings::clk_duty) -> Result;
+    fn set_duty_cycle(hw: &ClkHw, duty: *mut bindings::clk_duty) -> Result {
+        Err(ENOTSUPP)
+    }
     /// Perform platform-specific initialization magic
     /// Returns 0 on success, -EERROR otherwise.
-    fn init(hw: &ClkHw) -> Result;
+    fn init(hw: &ClkHw) -> Result {
+        Err(ENOTSUPP)
+    }
     /// Free any resource allocated by init
-    fn terminate(hw: &ClkHw);
+    fn terminate(hw: &ClkHw) {}
     /// Set up type-specific debugfs entries for this clock
     /// Returns 0 on success, -EERROR otherwise.
-    fn debug_init(hw: &ClkHw, dentry: *mut bindings::dentry);
+    fn debug_init(hw: &ClkHw, dentry: *mut bindings::dentry) -> Result {
+        Err(ENOTSUPP)
+    }
 }
 
 pub(crate) struct Adapter<T: ClkOps>(PhantomData<T>);
@@ -337,7 +377,7 @@ impl<T: ClkOps> Adapter<T> {
 
     unsafe extern "C" fn get_phase_callback(clk_hw: *mut bindings::clk_hw) -> core::ffi::c_int {
         let hw = unsafe { ClkHw::from_raw(clk_hw) };
-        T::get_phase(&hw)
+        from_result(|| T::get_phase(&hw))
     }
 
     unsafe extern "C" fn set_phase_callback(
