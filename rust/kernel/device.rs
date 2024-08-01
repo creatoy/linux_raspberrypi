@@ -217,6 +217,18 @@ impl Device {
             unsafe { from_err_ptr(bindings::devm_clk_register(self.ptr, clk_hw.as_mut_ptr()))? };
         Ok(Clk::from_raw(raw))
     }
+
+    /// Allocate a devm memory and return the corresponding pointer.
+    pub fn kzalloc<T>(&self) -> Result<*mut T> {
+        let size = core::mem::size_of::<T>();
+        let ptr = unsafe {
+            bindings::devm_kmalloc(self.ptr, size, bindings::GFP_KERNEL | bindings::__GFP_ZERO)
+        };
+        if ptr.is_null() {
+            return Err(ENOMEM);
+        }
+        Ok(ptr as *mut T)
+    }
 }
 
 // SAFETY: The device returned by `raw_device` is the one for which we hold a reference.

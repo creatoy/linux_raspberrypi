@@ -2,19 +2,23 @@
 
 //! BCM2835 master mode driver
 
+use kernel::driver::DeviceRemoval;
 use kernel::prelude::*;
 
 use kernel::bindings;
 use kernel::clk::Clk;
 use kernel::clk_provider::ClkHw;
 use kernel::clk_provider::ClkInitData;
+use kernel::clk_provider::ClkOps;
 use kernel::completion::Completion;
 use kernel::device::Device;
 use kernel::device::RawDevice;
 use kernel::driver;
 use kernel::io_mem::IoMem;
+use kernel::of::DeviceId;
 use kernel::platform;
 use kernel::str::CString;
+use kernel::sync::Arc;
 
 use kernel::c_str;
 use kernel::container_of;
@@ -101,17 +105,18 @@ struct Bcm2835I2cDev {
     num_msgs: i32,
     // omit debug fields for now.
     msg_err: u32,
-    // msg_buf: [u8],
+    // May Wrong! Vec<u8> for *mut u8
+    // C use u8* as a pointer msg_buf
+    // Use Vec<u8> as a stack buf
+    msg_buf: Vec<u8>,
     msg_buf_remaining: usize,
     debug: [Bcm2835Debug; BCM2835_DEBUG_MAX],
     debug_num: u32,
     debug_num_msgs: u32,
 }
 
-struct Bcm2835I2cData {}
-
 struct Bcm2835I2cDevice {
-    _drv: Pin<Box<platform::Registration<Bcm2835I2cDriver>>>,
+    drv_reg: Pin<Box<platform::Registration<Bcm2835I2cDriver>>>,
 }
 
 module! {
@@ -133,45 +138,6 @@ module! {
             description: "clock-stretch timeout (mS)",
         },
     },
-}
-
-impl Bcm2835I2cDevice {
-    fn register_div(
-        &mut self,
-        dev: &'static mut Device,
-        mclk: &Clk,
-        i2c_dev: &'static mut Bcm2835I2cDev,
-    ) -> Result<&mut Clk> {
-        let name = CString::try_from_fmt(fmt!("{}_div", dev.name()))?;
-        let mclk_name = mclk.name();
-
-        let p = unsafe {
-            bindings::devm_kmalloc(
-                dev.raw_device(),
-                core::mem::size_of::<ClkBcm2835I2c>(),
-                bindings::GFP_KERNEL | bindings::__GFP_ZERO,
-            )
-        };
-        if p.is_null() {
-            return Err(ENOMEM);
-        }
-        let clk_i2c = ClkBcm2835I2c::from_raw(p);
-        let parent_names = [mclk_name.as_char_ptr()];
-        // TODO: clk_ops implementation
-        let init_data = ClkInitData::new()
-            .name_config(&name, &parent_names)
-            .flags(0);
-        clk_i2c.hw.set_init_data(&init_data);
-        clk_i2c.i2c_dev = i2c_dev;
-
-        clk_i2c.hw.register_clkdev(c_str!("div"), dev.name())?;
-
-        // Ensure these objects live long enough
-        // TODO: Try to achieve this in a more elegant way
-        let _ = (name, parent_names, init_data);
-
-        dev.clk_register(&mut clk_i2c.hw)
-    }
 }
 
 fn bcm2835_i2c_writel(i2c_dev: &mut Bcm2835I2cDev, reg: usize, val: u32) {
@@ -196,14 +162,14 @@ struct ClkBcm2835I2c {
 }
 
 impl ClkBcm2835I2c {
-    fn from_raw<'a>(ptr: *mut core::ffi::c_void) -> &'a mut Self {
+    fn from_raw<'a>(ptr: *mut Self) -> &'a mut Self {
         let prt = ptr.cast::<Self>();
         unsafe { &mut *prt }
     }
 }
 
-fn clk_bcm2835_i2c_calc_divider(rate: u32, parent_rate: u32) -> Result<u32> {
-    let mut divider = parent_rate.div_ceil(rate);
+fn clk_bcm2835_i2c_calc_divider(rate: u64, parent_rate: u64) -> Result<u64> {
+    let mut divider = parent_rate.div_ceil(rate) as u32;
 
     /*
      * Per the datasheet, the register is always interpreted as an even
@@ -217,14 +183,14 @@ fn clk_bcm2835_i2c_calc_divider(rate: u32, parent_rate: u32) -> Result<u32> {
         return Err(EINVAL);
     }
 
-    return Ok(divider);
+    return Ok(divider as u64);
 }
 
-fn clk_bcm2835_i2c_set_rate(hw: &mut ClkHw, rate: u32, parent_rate: u32) -> Result<()> {
+fn clk_bcm2835_i2c_set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result<()> {
     let div = to_clk_bcm2835_i2c(hw);
     let divider = clk_bcm2835_i2c_calc_divider(rate, parent_rate)?;
 
-    bcm2835_i2c_writel(&mut div.i2c_dev, BCM2835_I2C_DIV, divider);
+    bcm2835_i2c_writel(&mut div.i2c_dev, BCM2835_I2C_DIV, divider as u32);
 
     /*
      * Number of core clocks to wait after falling edge before
@@ -242,13 +208,14 @@ fn clk_bcm2835_i2c_set_rate(hw: &mut ClkHw, rate: u32, parent_rate: u32) -> Resu
     bcm2835_i2c_writel(
         &mut div.i2c_dev,
         BCM2835_I2C_DEL,
-        (fedl << BCM2835_I2C_FEDL_SHIFT) | (redl << BCM2835_I2C_REDL_SHIFT),
+        ((fedl << BCM2835_I2C_FEDL_SHIFT) | (redl << BCM2835_I2C_REDL_SHIFT)) as u32,
     );
 
     /*
      * Set the clock stretch timeout.
      */
     let clk_tout: u32;
+    let rate = rate as u32;
     if rate > 0xffff * 1000 / CLK_TOUT_MS {
         clk_tout = 0xffff;
     } else {
@@ -260,26 +227,122 @@ fn clk_bcm2835_i2c_set_rate(hw: &mut ClkHw, rate: u32, parent_rate: u32) -> Resu
     Ok(())
 }
 
-fn clk_bcm2835_i2c_round_rate(hw: &mut ClkHw, rate: u32, parent_rate: &mut u32) -> u32 {
-    let divider = clk_bcm2835_i2c_calc_divider(rate, *parent_rate).unwrap();
+fn clk_bcm2835_i2c_round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i64 {
+    let Ok(divider) = clk_bcm2835_i2c_calc_divider(rate, *parent_rate) else {
+        return 0;
+    };
 
-    parent_rate.div_ceil(divider)
+    parent_rate.div_ceil(divider) as i64
 }
 
-fn clk_bcm2835_i2c_recalc_rate(hw: &mut ClkHw, parent_rate: u32) -> u32 {
+fn clk_bcm2835_i2c_recalc_rate(hw: &ClkHw, parent_rate: u64) -> u64 {
     let div = to_clk_bcm2835_i2c(hw);
-    let divider = bcm2835_i2c_readl(&mut div.i2c_dev, BCM2835_I2C_DIV);
+    let divider = bcm2835_i2c_readl(&mut div.i2c_dev, BCM2835_I2C_DIV) as u64;
 
     parent_rate.div_ceil(divider)
 }
 
 struct ClkBcm2835I2cOps;
 
-// impl ClkOps for ClkBcm2835I2cOps {}
+#[vtable]
+impl ClkOps for ClkBcm2835I2cOps {
+    fn set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result<()> {
+        clk_bcm2835_i2c_set_rate(hw, rate, parent_rate)
+    }
+
+    fn round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i64 {
+        clk_bcm2835_i2c_round_rate(hw, rate, parent_rate)
+    }
+
+    fn recalc_rate(hw: &ClkHw, parent_rate: u64) -> u64 {
+        clk_bcm2835_i2c_recalc_rate(hw, parent_rate)
+    }
+}
+
+impl Bcm2835I2cDev {
+    pub(crate) fn bcm2835_i2c_register_div(
+        dev: &'static mut Device,
+        mclk: &Clk,
+        i2c_dev: &'static mut Bcm2835I2cDev,
+    ) -> Result<&'static mut Clk> {
+        let name = CString::try_from_fmt(fmt!("{}_div", dev.name()))?;
+        let mclk_name = mclk.name();
+        let parent_names = [mclk_name.as_char_ptr()];
+        // Here: impl device.rs Device struct
+        // devm_alloc::<ClkBcm2835I2c>
+        let clk_i2c = unsafe {
+            let raw_ptr = dev.kzalloc::<ClkBcm2835I2c>()?;
+            let clk_i2c = ClkBcm2835I2c::from_raw(raw_ptr);
+            let init_data = ClkInitData::new()
+                .name_config(&name, &parent_names)
+                .ops::<ClkBcm2835I2cOps>()
+                .flags(0);
+            clk_i2c.hw.set_init_data(&init_data);
+            clk_i2c.i2c_dev = i2c_dev;
+
+            clk_i2c.hw.register_clkdev(c_str!("div"), dev.name())?;
+
+            clk_i2c
+        };
+
+        // Ensure these objects live long enough
+        // TODO: Try to achieve this in a more elegant way
+        // let _ = (name, parent_names, init_data);
+
+        dev.clk_register(&mut clk_i2c.hw)
+    }
+
+    pub(crate) fn bcm2835_fill_txfifo(i2c_dev: &'static mut Bcm2835I2cDev) {
+        while i2c_dev.msg_buf_remaining > 0 {
+            let val: u32 = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_S);
+            if !(val & BCM2835_I2C_S_TXD) != 0 {
+                break;
+            }
+            // May Wrong!
+            // Safety: Copy and retain the element.
+            let idx = i2c_dev.msg_buf.len() - 1;
+            let cur = i2c_dev.msg_buf[idx] as u32;
+            bcm2835_i2c_writel(i2c_dev, BCM2835_I2C_FIFO, cur);
+            i2c_dev.msg_buf_remaining -= 1;
+        }
+    }
+
+    pub(crate) fn bcm2835_fill_rxfifo(i2c_dev: &'static mut Bcm2835I2cDev) {
+        while i2c_dev.msg_buf_remaining > 0 {
+            let val: u32 = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_S);
+            if !(val & BCM2835_I2C_S_RXD) != 0 {
+                break;
+            }
+            // May Wrong!
+            let cur = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_FIFO) as u8;
+            // Safety: msg_buf_remaining > 0
+            let _ = i2c_dev.msg_buf.try_push(cur);
+            i2c_dev.msg_buf_remaining -= 1;
+        }
+    }
+}
+
+struct Bcm2835I2cData {}
+
+impl DeviceRemoval for Bcm2835I2cData {
+    fn device_remove(&self) {
+        // TODO: remove i2c device data
+    }
+}
+
+kernel::module_of_id_table!(BCM2835_I2C_MOD_TABLE, BCM2835_I2C_ID_TABLE);
+
+kernel::define_of_id_table! {BCM2835_I2C_ID_TABLE, (), [
+    (DeviceId::Compatible(b"brcm,bcm2711-i2c"), None),
+    (DeviceId::Compatible(b"brcm,bcm2835-i2c"), None),
+]}
 
 struct Bcm2835I2cDriver;
-
 impl platform::Driver for Bcm2835I2cDriver {
+    kernel::driver_of_id_table!(BCM2835_I2C_ID_TABLE);
+    // type Data = Arc<Bcm2835I2cData>;
+    type Data = ();
+
     fn probe(
         dev: &mut platform::Device,
         id_info: core::prelude::v1::Option<&Self::IdInfo>,
@@ -305,10 +368,10 @@ impl kernel::Module for Bcm2835I2cDevice {
     fn init(module: &'static ThisModule) -> Result<Self> {
         pr_info!("BCM2835 i2c bus device driver (init)\n");
 
-        let _drv =
+        let drv_reg =
             platform::Registration::<Bcm2835I2cDriver>::new_pinned(c_str!("i2c-bcm2835"), module)?;
 
-        Ok(Bcm2835I2cDevice { _drv })
+        Ok(Bcm2835I2cDevice { drv_reg })
     }
 }
 

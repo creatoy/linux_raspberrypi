@@ -6,13 +6,14 @@
 
 use crate::{
     bindings,
+    clk::Clk,
+    device::{Device, RawDevice},
     error::{from_result, to_result, Result},
+    prelude::*,
     str::CStr,
     types::{ForeignOwnable, Opaque},
 };
-use alloc::vec::Vec;
-use core::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
-use kernel::prelude::*;
+use core::{marker::PhantomData, mem::MaybeUninit};
 use macros::vtable;
 
 /// Represents `struct clk_core`
@@ -68,22 +69,6 @@ impl ClkHw {
         };
         to_result(ret)
     }
-
-    // How to implement clk_hw api?
-    /*
-    pub fn prepare_enable(&mut self) -> Result {
-        // SAFETY: call ffi and ptr is valid
-        unsafe {
-            to_result(bindings::clk_ops::prepare(self.as_ptr()))?;
-            let ret = to_result(bindings::clk_ops::enable(self.as_ptr()));
-            if ret.is_err() {
-                bindings::clk_ops::unprepare(self.as_ptr());
-                return ret;
-            }
-        }
-        Ok(())
-    }
-    */
 }
 
 /*
@@ -116,7 +101,7 @@ impl ClkInitData {
         self
     }
 
-    pub fn ops<T>(mut self, _ops: T) -> Self
+    pub fn ops<T>(mut self) -> Self
     where
         T: ClkOps,
     {
