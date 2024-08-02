@@ -306,8 +306,8 @@ impl Bcm2835I2cDev {
             // May Wrong!
             if let Some(ref mut buf) = i2c_dev.msg_buf {
                 // Safety: msg_buf_remaining > 0
-                let cur = buf.pop().unwrap() as u32;
-                bcm2835_i2c_writel(i2c_dev, BCM2835_I2C_FIFO, cur);
+                i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_FIFO, buf[0] as u32);
+                let buf = &mut buf[1..];
                 i2c_dev.msg_buf_remaining -= 1;
             }
         }
@@ -321,8 +321,8 @@ impl Bcm2835I2cDev {
             }
             // May Wrong!
             if let Some(ref mut buf) = i2c_dev.msg_buf {
-                let cur = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_FIFO) as u8;
-                let _ = i2c_dev.msg_buf.try_push(cur);
+                buf[0] = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_FIFO) as u8;
+                let buf = &mut buf[1..];
                 i2c_dev.msg_buf_remaining -= 1;
             }
         }
@@ -340,12 +340,24 @@ impl Bcm2835I2cDev {
 
         i2c_dev.num_msgs -= 1;
         // Caution: ownership transfer.
+        // other fields are fine.
         i2c_dev.msg_buf = msg.buf_to_vec();
         i2c_dev.msg_buf_remaining = msg.len();
 
         if msg.flags() & I2C_M_RD != 0 {
-            c |= BCM
+            c |= BCM2835_I2C_C_READ | BCM2835_I2C_C_INTR;
+        } else {
+            c |= BCM2835_I2C_C_INTT;
         }
+
+        if last_msg {
+            c |= BCM2835_I2C_C_INTD;
+        }
+
+        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_A, msg.addr() as u32);
+        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_DLEN, msg.len() as u32);
+        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, c);
+        //debug add
     }
 
     pub fn bcm2835_i2c_finish_transfer(i2c_dev: &'static mut Bcm2835I2cDev) {
@@ -396,7 +408,13 @@ fn bcm2835_i2c_isr(this_irq: i32, data: *mut core::ffi::c_void) -> irq::Return {
 
         i2c_dev.bcm2835_fill_txfifo();
 
-        if i2c_dev.num_msgs && !i2c_dev.msg_buf_remaining != 0 {}
+        if i2c_dev.num_msgs && !i2c_dev.msg_buf_remaining != 0 {
+            if let Some(ref mut curr_msg) = i2c_dev.curr_msg {
+                let curr_msg = curr_msg[1..];
+                i2c_dev.curr_msg = Some(curr_msg);
+            }
+            i2c_dev.bcm2835_i2c_start_transfer();
+        }
 
         return irq::Return::Handled;
     }

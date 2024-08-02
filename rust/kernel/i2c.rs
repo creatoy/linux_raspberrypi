@@ -57,6 +57,21 @@ impl Default for I2cMsg {
 ///
 pub struct I2cAdapter(Opaque<bindings::i2c_adapter>);
 
+impl I2cAdapter {
+    pub fn as_ptr(&self) -> *const bindings::i2c_adapter {
+        self.0.get() as *const bindings::i2c_adapter
+    }
+
+    pub fn as_mut_ptr(&mut self) -> *mut bindings::i2c_adapter {
+        self.0.get_mut() as *mut bindings::i2c_adapter
+    }
+
+    pub fn i2c_get_adapdata<T>(&self) -> *mut T {
+        unsafe {
+            bindings::i2c_get_adapdata(self.0.as_ptr() as *mut bindings::i2c_adapter) as *mut T
+        }
+    }
+}
 /// Represents i2c_smbus_data
 ///
 pub struct I2cSmbusData(Opaque<bindings::i2c_smbus_data>);
