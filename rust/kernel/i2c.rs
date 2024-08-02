@@ -1,6 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::{str, types::Opaque};
+use alloc::vec::Vec;
 use macros::vtable;
 
 pub const I2C_M_RD: u32 = bindings::I2C_M_RD;
@@ -31,6 +32,17 @@ impl I2cMsg {
     /// return addr of i2c_msg
     pub fn addr(&self) -> u16 {
         self.0.addr as u16
+    }
+
+    pub fn buf_to_vec(&self) -> Option<Vec<u8>> {
+        let len = self.len() as usize;
+        let buf = self.0.buf as *const u8;
+        if buf.is_null() {
+            return None;
+        }
+        // Safety: buf is valid for len bytes, no contiguity.
+        let slice = unsafe { core::slice::from_raw_parts(buf, len) };
+        Some(slice.to_vec())
     }
 }
 
