@@ -415,31 +415,131 @@ impl<T: ClkOps> Adapter<T> {
     }
 
     const VTABLE: bindings::clk_ops = bindings::clk_ops {
-        prepare: Some(Adapter::<T>::prepare_callback),
-        unprepare: Some(Adapter::<T>::unprepare_callback),
-        is_prepared: Some(Adapter::<T>::is_prepared_callback),
-        unprepare_unused: Some(Adapter::<T>::unprepare_unused_callback),
-        enable: Some(Adapter::<T>::enable_callback),
-        disable: Some(Adapter::<T>::disable_callback),
-        is_enabled: Some(Adapter::<T>::is_enabled_callback),
-        disable_unused: Some(Adapter::<T>::disable_unused_callback),
-        save_context: Some(Adapter::<T>::save_context_callback),
-        restore_context: Some(Adapter::<T>::restore_context_callback),
-        recalc_rate: Some(Adapter::<T>::recalc_rate_callback),
-        round_rate: Some(Adapter::<T>::round_rate_callback),
-        determine_rate: Some(Adapter::<T>::determine_rate_callback),
-        set_parent: Some(Adapter::<T>::set_parent_callback),
-        get_parent: Some(Adapter::<T>::get_parent_callback),
-        set_rate: Some(Adapter::<T>::set_rate_callback),
-        set_rate_and_parent: Some(Adapter::<T>::set_rate_and_parent_callback),
-        recalc_accuracy: Some(Adapter::<T>::recalc_accuracy_callback),
-        get_phase: Some(Adapter::<T>::get_phase_callback),
-        set_phase: Some(Adapter::<T>::set_phase_callback),
-        get_duty_cycle: Some(Adapter::<T>::get_duty_cycle_callback),
-        set_duty_cycle: Some(Adapter::<T>::set_duty_cycle_callback),
-        init: Some(Adapter::<T>::init_callback),
-        terminate: Some(Adapter::<T>::terminate_callback),
-        debug_init: Some(Adapter::<T>::debug_init_callback),
+        prepare: if T::HAS_PREPARE {
+            Some(Adapter::<T>::prepare_callback)
+        } else {
+            None
+        },
+        unprepare: if T::HAS_UNPREPARE {
+            Some(Adapter::<T>::unprepare_callback)
+        } else {
+            None
+        },
+        is_prepared: if T::HAS_IS_PREPARED {
+            Some(Adapter::<T>::is_prepared_callback)
+        } else {
+            None
+        },
+        unprepare_unused: if T::HAS_UNPREPARE_UNUSED {
+            Some(Adapter::<T>::unprepare_unused_callback)
+        } else {
+            None
+        },
+        enable: if T::HAS_ENABLE {
+            Some(Adapter::<T>::enable_callback)
+        } else {
+            None
+        },
+        disable: if T::HAS_DISABLE {
+            Some(Adapter::<T>::disable_callback)
+        } else {
+            None
+        },
+        is_enabled: if T::HAS_IS_ENABLED {
+            Some(Adapter::<T>::is_enabled_callback)
+        } else {
+            None
+        },
+        disable_unused: if T::HAS_DISABLE_UNUSED {
+            Some(Adapter::<T>::disable_unused_callback)
+        } else {
+            None
+        },
+        save_context: if T::HAS_SAVE_CONTEXT {
+            Some(Adapter::<T>::save_context_callback)
+        } else {
+            None
+        },
+        restore_context: if T::HAS_RESTORE_CONTEXT {
+            Some(Adapter::<T>::restore_context_callback)
+        } else {
+            None
+        },
+        recalc_rate: if T::HAS_RECALC_RATE {
+            Some(Adapter::<T>::recalc_rate_callback)
+        } else {
+            None
+        },
+        round_rate: if T::HAS_ROUND_RATE {
+            Some(Adapter::<T>::round_rate_callback)
+        } else {
+            None
+        },
+        determine_rate: if T::HAS_DETERMINE_RATE {
+            Some(Adapter::<T>::determine_rate_callback)
+        } else {
+            None
+        },
+        set_parent: if T::HAS_SET_PARENT {
+            Some(Adapter::<T>::set_parent_callback)
+        } else {
+            None
+        },
+        get_parent: if T::HAS_GET_PARENT {
+            Some(Adapter::<T>::get_parent_callback)
+        } else {
+            None
+        },
+        set_rate: if T::HAS_SET_RATE {
+            Some(Adapter::<T>::set_rate_callback)
+        } else {
+            None
+        },
+        set_rate_and_parent: if T::HAS_SET_RATE_AND_PARENT {
+            Some(Adapter::<T>::set_rate_and_parent_callback)
+        } else {
+            None
+        },
+        recalc_accuracy: if T::HAS_RECALC_ACCURACY {
+            Some(Adapter::<T>::recalc_accuracy_callback)
+        } else {
+            None
+        },
+        get_phase: if T::HAS_GET_PHASE {
+            Some(Adapter::<T>::get_phase_callback)
+        } else {
+            None
+        },
+        set_phase: if T::HAS_SET_PHASE {
+            Some(Adapter::<T>::set_phase_callback)
+        } else {
+            None
+        },
+        get_duty_cycle: if T::HAS_GET_DUTY_CYCLE {
+            Some(Adapter::<T>::get_duty_cycle_callback)
+        } else {
+            None
+        },
+        set_duty_cycle: if T::HAS_SET_DUTY_CYCLE {
+            Some(Adapter::<T>::set_duty_cycle_callback)
+        } else {
+            None
+        },
+        init: if T::HAS_INIT {
+            Some(Adapter::<T>::init_callback)
+        } else {
+            None
+        },
+        terminate: if T::HAS_TERMINATE {
+            Some(Adapter::<T>::terminate_callback)
+        } else {
+            None
+        },
+        debug_init: if T::HAS_DEBUG_INIT {
+            Some(Adapter::<T>::debug_init_callback)
+        } else {
+            None
+        },
     };
 
     const fn build() -> &'static bindings::clk_ops {
