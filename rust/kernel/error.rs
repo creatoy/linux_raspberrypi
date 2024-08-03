@@ -28,6 +28,7 @@ pub mod code {
         };
     }
 
+    declare_err!(EREMOTEIO,"Remote I/O error.");
     declare_err!(ETIMEDOUT, "Operation timeout");
     declare_err!(EPERM, "Operation not permitted.");
     declare_err!(ENOENT, "No such file or directory.");

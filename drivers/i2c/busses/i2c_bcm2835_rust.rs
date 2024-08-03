@@ -2,7 +2,10 @@
 
 //! BCM2835 master mode driver
 
+use core::num;
+
 use kernel::driver::DeviceRemoval;
+use kernel::error::to_result;
 use kernel::i2c;
 use kernel::i2c::I2cAdapter;
 use kernel::prelude::*;
@@ -442,7 +445,80 @@ fn bcm2835_i2c_isr(this_irq: i32, data: *mut core::ffi::c_void) -> irq::Return {
     }
 }
 
-fn bcm2835_i2c_xfer(adap: I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()> {}
+fn bcm2835_i2c_xfer(adap: I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()> {
+    let i2c_dev = unsafe { &mut *(adap.data as *mut Bcm2835I2cDev) };
+    let ignore_nak = false;
+
+    if unsafe { DEBUG != 0 } {
+        i2c_dev.debug_num_msgs = num;
+    }
+
+    if unsafe { DEBUG > 2 } {
+        //for 0..num {
+        // print msg
+        //}
+    }
+
+    for msg in &msgs {
+        if msg.flags() & I2C_M_RD != 0 {
+            dev_warn!(
+                i2c_dev.dev,
+                "only one read message supported, has to be last\n"
+            );
+            return Err(EOPENSTALE);
+        }
+        if msg.flags() & I2C_M_NOSTART != 0 {
+            ignore_nak = true;
+        }
+    }
+
+    i2c_dev.curr_msg = Some(msgs);
+    i2c_dev.num_msgs = num;
+    i2c_dev.msg_err = 0;
+
+    i2c_dev.completion.reinit();
+
+    i2c_dev.bcm2835_i2c_start_transfer();
+
+    let time_left = i2c_dev
+        .completion
+        .wait_for_completion_timeout_sec(adap.timeout());
+
+    i2c_dev.bcm2835_i2c_finish_transfer();
+
+    if ignore_nak {
+        i2c_dev.msg_err &= !BCM2835_I2C_S_ERR;
+    }
+
+    if unsafe { DEBUG > 1 || (DEBUG && (!time_left || i2c_dev.msg_err)) } {
+        // debug print
+    }
+    i2c_dev.debug_num_msgs = 0;
+    i2c_dev.debug_num = 0;
+    if !time_left != 0 {
+        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, BCM2835_I2C_C_CLEAR);
+        dev_err!(i2c_dev.dev, "i2c transfer timed out\n");
+        return Err(ETIMEDOUT);
+    }
+
+    if !i2c_dev.msg_err != 0 {
+        return to_result(num);
+    }
+
+    if unsafe { DEBUG != 0 } {
+        dev_err!(i2c_dev.dev, "i2c transfer failed: {}\n", i2c_dev.msg_err);
+    }
+
+    if i2c_dev.msg_err & BCM2835_I2C_S_ERR != 0 {
+        return Err(EREMOTEIO);
+    }
+
+    Err(EIO);
+}
+
+fn bcm2835_i2c_func(adap: I2cAdapter) -> u32 {
+    i2c::I2C_FUNC_I2C | i2c::I2C_FUNC_10BIT_ADDR | i2c::I2C_FUNC_PROTOCOL_MANGLING
+}
 
 struct Bcm2835I2cAlgo;
 
