@@ -1,6 +1,6 @@
 use core::marker::PhantomData;
 
-use crate::{platform::Adapter, str, types::Opaque};
+use crate::types::{ForeignOwnable, Opaque};
 use alloc::vec::Vec;
 use macros::vtable;
 

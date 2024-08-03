@@ -6,15 +6,13 @@
 
 use crate::{
     bindings,
-    clk::Clk,
-    device::{Device, RawDevice},
+    device::RawDevice,
     error::{from_result, to_result, Result},
     prelude::*,
     str::CStr,
     types::{ForeignOwnable, Opaque},
 };
-use core::{cell::UnsafeCell, marker::PhantomData, mem::MaybeUninit};
-use kernel::prelude::*;
+use core::{marker::PhantomData, mem::MaybeUninit};
 use macros::vtable;
 
 /// Represents `struct clk_core`
