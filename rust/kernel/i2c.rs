@@ -124,17 +124,6 @@ impl I2cAdapter {
         to_result(ret)
     }
 
-    pub unsafe fn i2c_set_adapdata<T>(&self, data: *mut T) {
-        unsafe {
-            bindings::dev_set_drvdata(self.0.get() as *mut bindings::i2c_adapter, data as *mut ())
-        }
-    }
-
-    pub fn i2c_add_adapter(&self) -> Result {
-        let ret = unsafe { bindings::i2c_add_adapter(self.0.get()) };
-        to_result(ret)
-    }
-
     pub fn timeout(&self) -> usize {
         unsafe { self.0.timeout as usize }
     }

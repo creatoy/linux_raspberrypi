@@ -6,6 +6,8 @@
 //!
 //! C header: [`include/linux/platform_device.h`](../../../../include/linux/platform_device.h)
 
+use core::ffi::c_void;
+
 use crate::{
     bindings,
     device::{self, RawDevice},
@@ -198,6 +200,14 @@ impl Device {
             let ptr = from_err_ptr(bindings::devm_platform_ioremap_resource(self.ptr, index))?;
             Ok(ptr as *mut u8)
         }
+    }
+
+    pub unsafe fn platform_set_drvdata<T>(&self, data: *mut T) {
+        unsafe { bindings::platform_set_drvdata(self.ptr, data as *mut c_void) };
+    }
+
+    pub unsafe fn platform_get_drvdata<T>(&self) -> *mut T {
+        unsafe { bindings::platform_get_drvdata(self.ptr) as *mut T }
     }
 
     // TODO!
