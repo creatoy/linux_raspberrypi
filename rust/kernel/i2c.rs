@@ -1,6 +1,9 @@
 use core::marker::PhantomData;
 
-use crate::types::{ForeignOwnable, Opaque};
+use crate::{
+    error::{to_result, Result},
+    types::{ForeignOwnable, Opaque},
+};
 use alloc::vec::Vec;
 use macros::vtable;
 
@@ -106,8 +109,19 @@ impl I2cAdapter {
         self.0.get() as *const bindings::i2c_adapter
     }
 
-    pub fn i2c_get_adapdata<T>(&self) -> *mut T {
+    pub unsafe fn i2c_get_adapdata<T>(&self) -> *mut T {
         unsafe { bindings::dev_get_drvdata(self.0.get() as *mut bindings::i2c_adapter) as *mut T }
+    }
+
+    pub unsafe fn i2c_set_adapdata<T>(&self, data: *mut T) {
+        unsafe {
+            bindings::dev_set_drvdata(self.0.get() as *mut bindings::i2c_adapter, data as *mut ())
+        }
+    }
+
+    pub fn i2c_add_adapter(&self) -> Result {
+        let ret = unsafe { bindings::i2c_add_adapter(self.0.get()) };
+        to_result(ret)
     }
 
     pub fn timeout(&self) -> usize {

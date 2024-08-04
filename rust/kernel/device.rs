@@ -9,11 +9,14 @@ use crate::{
     clk::Clk,
     clk_provider::ClkHw,
     dev_err,
-    error::{code::*, from_err_ptr, Result},
+    error::{code::*, from_err_ptr, to_result, Result},
     macros::pin_data,
     pin_init, pr_crit,
     str::CStr,
-    sync::{lock::mutex, lock::Guard, LockClassKey, Mutex, UniqueArc},
+    sync::{
+        lock::{mutex, Guard},
+        LockClassKey, Mutex, UniqueArc,
+    },
 };
 use core::{
     fmt,
@@ -233,11 +236,29 @@ impl Device {
     /// Allocate(kzalloc) and return the corresponding mutable pointer.
     pub fn kzalloc<T>(&self) -> Result<*mut T> {
         let size = core::mem::size_of::<T>();
-        let ptr = unsafe {bindings::devm_kmalloc(self.ptr, size, bindings::GFP_KERNEL | bindings::__GFP_ZERO)};
+        let ptr = unsafe {
+            bindings::devm_kmalloc(self.ptr, size, bindings::GFP_KERNEL | bindings::__GFP_ZERO)
+        };
         if ptr.is_null() {
             return Err(ENOMEM);
         }
         Ok(ptr as *mut T)
+    }
+
+    /// get match data of type T
+    pub fn get_match_data<T>(&self) -> Result<*mut T> {
+        let ptr = unsafe { bindings::of_device_get_match_data(self.ptr) };
+        // return ptr must be null.
+        Ok(ptr as *mut T)
+    }
+
+    // Find and read an array of 32 bit from a property.
+    pub fn of_property_read_u32(&self, propname: &'static CStr, out_values: &u32) -> Result {
+        let ret = unsafe {
+            let np = self.ptr.of_node;
+            bindings::of_property_read_variable_u32_array(np, propname.as_char_ptr(), out_values, 1)
+        };
+        to_result(ret)
     }
 }
 

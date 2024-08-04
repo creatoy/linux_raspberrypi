@@ -54,16 +54,27 @@ impl Clk {
 
     pub fn name(&self) -> &CStr {
         // SAFETY: if clk is valid, name is valid. name must be a UTF-8 string.
-        unsafe {
-            CStr::from_char_ptr(bindings::__clk_get_name(self.0.get()))
-        }
+        unsafe { CStr::from_char_ptr(bindings::__clk_get_name(self.0.get())) }
+    }
+
+    pub fn set_rate(&self, rate: u64) -> Result {
+        let ret = unsafe { bindings::clk_set_rate(self.0.get(), rate) };
+        to_result(ret)
+    }
+
+    pub fn set_rate_exclusive(&self, rate: u64) -> Result {
+        let ret = unsafe { bindings::clk_set_rate_exclusive(self.0.get(), rate) };
+        to_result(ret)
     }
 }
 
 impl Drop for Clk {
     fn drop(&mut self) {
         // SAFETY: The pointer is valid by the type invariant.
-        unsafe { bindings::clk_put(self.0.get()) };
+        unsafe {
+            bindings::clk_rate_exclusive_put(self.0.get());
+            bindings::clk_put(self.0.get());
+        }
     }
 }
 

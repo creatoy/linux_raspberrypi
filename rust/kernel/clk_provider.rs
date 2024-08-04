@@ -25,7 +25,7 @@ pub struct ClkRateRequest(bindings::clk_rate_request);
 /// Represents `struct clk_duty`
 pub struct ClkDuty(bindings::clk_duty);
 
-/// Represents `struct clk_hw`
+/// Reresents `struct clk_hw`
 ///
 /// # Invariants
 ///

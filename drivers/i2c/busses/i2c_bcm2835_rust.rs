@@ -216,7 +216,7 @@ fn clk_bcm2835_i2c_set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result<(
     if unsafe { rate > 0xffff * 1000 / CLK_TOUT_MS } {
         clk_tout = 0xffff;
     } else {
-        clk_tout = CLK_TOUT_MS * rate / 1000;
+        clk_tout = unsafe { CLK_TOUT_MS } * rate / 1000;
     }
 
     bcm2835_i2c_writel(&mut div.i2c_dev, BCM2835_I2C_CLKT, clk_tout);
