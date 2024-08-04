@@ -8,6 +8,7 @@ use kernel::driver::DeviceRemoval;
 use kernel::error::to_result;
 use kernel::i2c;
 use kernel::i2c::I2cAdapter;
+use kernel::i2c::I2cAdapterQuirks;
 use kernel::prelude::*;
 
 use kernel::bindings;
@@ -283,8 +284,8 @@ impl Bcm2835I2cDev {
             let clk_i2c = ClkBcm2835I2c::from_raw(raw_ptr);
             let init_data = ClkInitData::new()
                 .name_config(&name, &parent_names)
-                .ops::<ClkBcm2835I2cOps>()
-                .flags(0);
+                .set_ops::<ClkBcm2835I2cOps>()
+                .set_flags(0);
             clk_i2c.hw.set_init_data(&init_data);
             clk_i2c.i2c_dev = i2c_dev;
 
@@ -520,6 +521,10 @@ fn bcm2835_i2c_func(adap: I2cAdapter) -> u32 {
     i2c::I2C_FUNC_I2C | i2c::I2C_FUNC_10BIT_ADDR | i2c::I2C_FUNC_PROTOCOL_MANGLING
 }
 
+// I2C_AQ ..
+const BCM2835_I2C_QUIRKS: I2cAdapterQuirks =
+    I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH);
+
 struct Bcm2835I2cAlgo;
 
 struct Bcm2835I2cDriver;
@@ -568,11 +573,16 @@ struct Bcm2835I2cDriver;
 
 impl platform::Driver for Bcm2835I2cDriver {
     fn probe(
-        dev: &mut platform::Device,
+        pdev: &mut platform::Device,
         id_info: core::prelude::v1::Option<&Self::IdInfo>,
     ) -> Result<Self::Data> {
         // let pdev = dev.
         // TODO: initialize and probe i2c driver
+        let i2c_dev = unsafe {
+            let dev = &mut *(pdev.raw_device()) as &mut Device;
+            dev.kzalloc::<Bcm2835I2cDev>()?
+        } as &mut Bcm2835I2cDev;
+        // TODO: initialize i2c_dev
         Ok(())
     }
 

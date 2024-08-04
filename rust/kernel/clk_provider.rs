@@ -6,7 +6,6 @@
 
 use crate::{
     bindings,
-    device::RawDevice,
     error::{from_result, to_result, Result},
     prelude::*,
     str::CStr,
@@ -100,7 +99,7 @@ impl ClkInitData {
         self
     }
 
-    pub fn ops<T>(mut self) -> Self
+    pub fn set_ops<T>(mut self) -> Self
     where
         T: ClkOps,
     {
@@ -109,7 +108,7 @@ impl ClkInitData {
         self
     }
 
-    pub fn flags(mut self, flags: u64) -> Self {
+    pub fn set_flags(mut self, flags: u64) -> Self {
         self.0.flags = flags;
         self
     }

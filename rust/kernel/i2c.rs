@@ -40,6 +40,25 @@ pub const I2C_FUNC_SMBUS_BLOCK_DATA: u32 = bindings::I2C_FUNC_SMBUS_BLOCK_DATA;
 pub const I2C_FUNC_SMBUS_I2C_BLOCK: u32 = bindings::I2C_FUNC_SMBUS_I2C_BLOCK;
 pub const I2C_FUNC_SMBUS_EMUL: u32 = bindings::I2C_FUNC_SMBUS_EMUL;
 pub const I2C_FUNC_SMBUS_EMUL_ALL: u32 = bindings::I2C_FUNC_SMBUS_EMUL_ALL;
+
+// No BIT macros.
+pub const I2C_AQ_NO_CLK_STRETCH: u32 = 1 << 4;
+/// Represents i2c_adapter_quirks
+///
+pub struct I2cAdapterQuirks(bindings::i2c_adapter_quirks);
+
+impl I2cAdapterQuirks {
+    pub fn new() -> Self {
+        let up = unsafe { MaybeUninit::<bindings::i2c_adapter_quirks>::zeroed().assume_init() };
+        Self(up)
+    }
+
+    pub fn set_flags(mut self, flags: u64) -> Self {
+        self.0.flags = flags;
+        self
+    }
+}
+
 /// Represents i2c_msg
 ///
 pub struct I2cMsg(bindings::i2c_msg);
@@ -68,7 +87,7 @@ impl I2cMsg {
         }
         // Safety: buf is valid for len bytes, no contiguity.
         let slice = unsafe { core::slice::from_raw_parts(buf, len) };
-        Some(slice.to_vec())
+        Some(*slice.to_vec())
     }
 }
 
@@ -87,18 +106,12 @@ impl I2cAdapter {
         self.0.get() as *const bindings::i2c_adapter
     }
 
-    pub fn as_mut_ptr(&mut self) -> *mut bindings::i2c_adapter {
-        self.0.get_mut() as *mut bindings::i2c_adapter
-    }
-
     pub fn i2c_get_adapdata<T>(&self) -> *mut T {
-        unsafe {
-            bindings::dev_get_drvdata(self.0.as_ptr() as *mut bindings::i2c_adapter) as *mut T
-        }
+        unsafe { bindings::dev_get_drvdata(self.0.get() as *mut bindings::i2c_adapter) as *mut T }
     }
 
-    pub fn timeout(&self) -> i32 {
-        self.0.get().timeout as i32
+    pub fn timeout(&self) -> usize {
+        unsafe { (*self.0.get()).timeout as usize }
     }
 }
 /// Represents i2c_smbus_data
