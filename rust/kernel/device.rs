@@ -253,10 +253,16 @@ impl Device {
     }
 
     // Find and read an array of 32 bit from a property.
-    pub fn of_property_read_u32(&self, propname: &'static CStr, out_values: &u32) -> Result {
+    pub unsafe fn of_property_read_u32(&self, propname: &'static CStr, out_values: *mut u32) -> Result {
         let ret = unsafe {
-            let np = self.ptr.of_node;
-            bindings::of_property_read_variable_u32_array(np, propname.as_char_ptr(), out_values, 1)
+            let np = (*self.raw_device()).of_node;
+            bindings::of_property_read_variable_u32_array(
+                np,
+                propname.as_char_ptr(),
+                out_values,
+                1,
+                0,
+            )
         };
         to_result(ret)
     }

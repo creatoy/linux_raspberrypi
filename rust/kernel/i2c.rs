@@ -1,10 +1,10 @@
-use core::marker::PhantomData;
-
 use crate::{
     error::{to_result, Result},
     types::{ForeignOwnable, Opaque},
 };
 use alloc::vec::Vec;
+use core::mem::MaybeUninit;
+use core::{ffi::c_void, marker::PhantomData};
 use macros::vtable;
 
 pub const I2C_M_RD: u32 = bindings::I2C_M_RD;
@@ -90,7 +90,7 @@ impl I2cMsg {
         }
         // Safety: buf is valid for len bytes, no contiguity.
         let slice = unsafe { core::slice::from_raw_parts(buf, len) };
-        Some(*slice.to_vec())
+        Some(slice.to_vec())
     }
 }
 
@@ -103,14 +103,25 @@ impl Default for I2cMsg {
 
 /// Represents i2c_adapter
 ///
-pub struct I2cAdapter(Opaque<bindings::i2c_adapter>);
+pub struct I2cAdapter(bindings::i2c_adapter);
 impl I2cAdapter {
-    pub fn as_ptr(&self) -> *const bindings::i2c_adapter {
-        self.0.get() as *const bindings::i2c_adapter
+    pub fn as_ptr(&self) -> *mut bindings::i2c_adapter {
+        &self.0 as *const _ as *mut _
     }
 
     pub unsafe fn i2c_get_adapdata<T>(&self) -> *mut T {
-        unsafe { bindings::dev_get_drvdata(self.0.get() as *mut bindings::i2c_adapter) as *mut T }
+        unsafe { bindings::dev_get_drvdata(&self.0.dev as *const _ as *mut _) as *mut T }
+    }
+
+    pub unsafe fn i2c_set_adapdata<T>(&self, data: *mut T) {
+        unsafe {
+            self.0.dev.driver_data = data as *mut c_void;
+        }
+    }
+
+    pub fn i2c_add_adapter(&self) -> Result {
+        let ret = unsafe { bindings::i2c_add_adapter(self.as_ptr()) };
+        to_result(ret)
     }
 
     pub unsafe fn i2c_set_adapdata<T>(&self, data: *mut T) {
@@ -125,7 +136,7 @@ impl I2cAdapter {
     }
 
     pub fn timeout(&self) -> usize {
-        unsafe { (*self.0.get()).timeout as usize }
+        unsafe { self.0.timeout as usize }
     }
 }
 /// Represents i2c_smbus_data
