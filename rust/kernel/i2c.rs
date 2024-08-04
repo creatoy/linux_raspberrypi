@@ -2,7 +2,7 @@ use crate::{
     error::{to_result, Result},
     types::{ForeignOwnable, Opaque},
 };
-use alloc::vec::Vec;
+use alloc::vec::{self, Vec};
 use core::mem::MaybeUninit;
 use core::{ffi::c_void, marker::PhantomData};
 use macros::vtable;
@@ -82,15 +82,16 @@ impl I2cMsg {
         self.0.addr as u16
     }
 
+    /// return buf of i2c_msg and transfer ownership of the buf
     pub fn buf_to_vec(&self) -> Option<Vec<u8>> {
         let len = self.len() as usize;
-        let buf = self.0.buf as *const u8;
+        let buf = self.0.buf as *const _ as *mut u8;
         if buf.is_null() {
             return None;
         }
         // Safety: buf is valid for len bytes, no contiguity.
-        let slice = unsafe { core::slice::from_raw_parts(buf, len) };
-        Some(slice.to_vec())
+        let vec: Vec<u8> = unsafe { Vec::from_raw_parts(buf, len, len) };
+        Some(vec)
     }
 }
 
@@ -113,7 +114,7 @@ impl I2cAdapter {
         unsafe { bindings::dev_get_drvdata(&self.0.dev as *const _ as *mut _) as *mut T }
     }
 
-    pub unsafe fn i2c_set_adapdata<T>(&self, data: *mut T) {
+    pub unsafe fn i2c_set_adapdata<T>(&mut self, data: *mut T) {
         unsafe {
             self.0.dev.driver_data = data as *mut c_void;
         }
