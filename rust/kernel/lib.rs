@@ -50,11 +50,12 @@ pub mod file;
 pub mod fs;
 pub mod fwnode;
 pub mod gpio;
+pub mod i2c;
 pub mod init;
 pub mod io_buffer;
 pub mod io_mem;
 #[cfg(CONFIG_IOMMU_IO_PGTABLE)]
-// pub mod io_pgtable;
+pub mod io_pgtable;
 pub mod ioctl;
 pub mod iov_iter;
 pub mod irq;
@@ -77,7 +78,6 @@ pub mod task;
 pub mod timekeeping;
 pub mod types;
 pub mod user_ptr;
-pub mod i2c;
 
 use core::marker::PhantomData;
 
