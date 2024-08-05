@@ -64,6 +64,8 @@ impl I2cAdapterQuirks {
 
 /// Represents i2c_msg
 ///
+/// Note: buf is a raw pointer
+/// Note: all primitive fields are __u16 type in C, represented as u16 in Rust.
 pub struct I2cMsg(bindings::i2c_msg);
 
 impl I2cMsg {
