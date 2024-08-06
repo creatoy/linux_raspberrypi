@@ -9,7 +9,7 @@ use kernel::{
     clk::Clk,
     clk_provider::{ClkHw, ClkInitData, ClkOps},
     completion::Completion,
-    device::{Device, RawDevice},
+    device::{self, Device, RawDevice},
     driver::DeviceRemoval,
     error::to_result,
     i2c::{self, I2cAdapter, I2cAdapterQuirks, I2cMsg, I2C_M_NOSTART, I2C_M_RD},
@@ -19,6 +19,7 @@ use kernel::{
     platform,
     prelude::*,
     str::CString,
+    sync::Arc,
     {c_str, container_of, define_of_id_table, module_platform_driver},
 };
 
@@ -109,31 +110,6 @@ struct Bcm2835I2cDev {
     debug: [Bcm2835Debug; BCM2835_DEBUG_MAX],
     debug_num: u32,
     debug_num_msgs: u32,
-}
-
-struct Bcm2835I2cDevice {
-    _drv: Pin<Box<platform::Registration<Bcm2835I2cDriver>>>,
-}
-
-module! {
-    type: Bcm2835I2cDevice,
-    name:"i2c_bcm2835_rust",
-    author:"<NAME> <<EMAIL>>",
-    description:"BCM2835 I2C driver (written in rust)",
-    license:"GPL",
-    alias: ["platform:i2c_bcm2835"],
-    params: {
-        debug: u32 {
-            default: 0,
-            permissions: 0o644,
-            description: "1=err, 2=isr, 3=xfer",
-        },
-        clk_out_ms: u32 {
-            default: 35,
-            permissions: 0o644,
-            description: "clock-stretch timeout (mS)",
-        },
-    },
 }
 
 fn to_clk_bcm2835_i2c(hw_ptr: &ClkHw) -> &mut ClkBcm2835I2c {
@@ -519,13 +495,29 @@ fn bcm2835_i2c_func(adap: I2cAdapter) -> u32 {
 
 struct Bcm2835I2cAlgo;
 
-struct Bcm2835I2cData;
+struct Bcm2835I2cData {}
 struct Bcm2835I2cDriver;
 
-impl DeviceRemoval for Bcm2835I2cData {
-    fn device_remove(&self) {
-        // TODO: remove i2c device data
-    }
+module_platform_driver! {
+    type: Bcm2835I2cDriver,
+    name:"i2c_bcm2835_rust",
+    author:"<NAME> <<EMAIL>>",
+    description:"BCM2835 I2C bus driver (written in rust)",
+    license:"GPL",
+    initcall: "arch",
+    alias: ["platform:i2c-bcm2835"],
+    params: {
+        debug: u32 {
+            default: 0,
+            permissions: 0o644,
+            description: "1=err, 2=isr, 3=xfer",
+        },
+        clk_out_ms: u32 {
+            default: 35,
+            permissions: 0o644,
+            description: "clock-stretch timeout (mS)",
+        },
+    },
 }
 
 kernel::module_of_id_table!(BCM2835_I2C_MOD_TABLE, BCM2835_I2C_ID_TABLE);
@@ -535,46 +527,34 @@ kernel::define_of_id_table! {BCM2835_I2C_ID_TABLE, (), [
     (DeviceId::Compatible(b"brcm,bcm2835-i2c"), None),
 ]}
 
+type DeviceData = device::Data<(), (), Bcm2835I2cData>;
+
 impl platform::Driver for Bcm2835I2cDriver {
+    kernel::driver_of_id_table!(BCM2835_I2C_ID_TABLE);
+
+    type Data = Arc<DeviceData>;
+
     fn probe(
         pdev: &mut platform::Device,
         id_info: core::prelude::v1::Option<&Self::IdInfo>,
     ) -> Result<Self::Data> {
-        // let pdev = dev.
+        pr_info!("BCM2835 i2c bus device ({}) driver probe.\n", pdev.name());
+
         // TODO: initialize and probe i2c driver
         /*let i2c_dev = unsafe {
             let dev = &mut *(pdev.raw_device().dev) as &mut Device;
             dev.kzall
         };*/
         // TODO: initialize i2c_dev
-        Ok(())
+
+        let dev_data =
+            kernel::new_device_data!((), (), Bcm2835I2cData {}, "BCM2835_I2C device data")?;
+        Ok(dev_data.into())
     }
 
     fn remove(_data: &Self::Data) -> Result {
+        pr_info!("BCM2835 i2c bus device driver remove.\n");
         // TODO: remove i2c driver
         Ok(())
-    }
-
-    // TODO: complete the table
-    // define_of_id_table! {(), [
-    //     (of::DeviceId::Compatible(b"brcm,bcm2711-i2c"), None),
-    //     (of::DeviceId::Compatible(b"brcm,bcm2835-i2c"), None),
-    // ]}
-}
-
-impl kernel::Module for Bcm2835I2cDevice {
-    fn init(module: &'static ThisModule) -> Result<Self> {
-        pr_info!("BCM2835 i2c bus device driver (init)\n");
-
-        let _drv =
-            platform::Registration::<Bcm2835I2cDriver>::new_pinned(c_str!("i2c-bcm2835"), module)?;
-
-        Ok(Bcm2835I2cDevice { _drv })
-    }
-}
-
-impl Drop for Bcm2835I2cDevice {
-    fn drop(&mut self) {
-        pr_info!("BCM2835 i2c bus device driver (exit)\n");
     }
 }
