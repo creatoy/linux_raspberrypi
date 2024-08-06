@@ -16,45 +16,45 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 
-#define BCM2835_I2C_C 0x0
-#define BCM2835_I2C_S 0x4
-#define BCM2835_I2C_DLEN 0x8
-#define BCM2835_I2C_A 0xc
-#define BCM2835_I2C_FIFO 0x10
-#define BCM2835_I2C_DIV 0x14
-#define BCM2835_I2C_DEL 0x18
+#define BCM2835_I2C_C		0x0
+#define BCM2835_I2C_S		0x4
+#define BCM2835_I2C_DLEN	0x8
+#define BCM2835_I2C_A		0xc
+#define BCM2835_I2C_FIFO	0x10
+#define BCM2835_I2C_DIV		0x14
+#define BCM2835_I2C_DEL		0x18
 /*
  * 16-bit field for the number of SCL cycles to wait after rising SCL
  * before deciding the slave is not responding. 0 disables the
  * timeout detection.
  */
-#define BCM2835_I2C_CLKT 0x1c
+#define BCM2835_I2C_CLKT	0x1c
 
-#define BCM2835_I2C_C_READ BIT(0)
-#define BCM2835_I2C_C_CLEAR BIT(4) /* bits 4 and 5 both clear */
-#define BCM2835_I2C_C_ST BIT(7)
-#define BCM2835_I2C_C_INTD BIT(8)
-#define BCM2835_I2C_C_INTT BIT(9)
-#define BCM2835_I2C_C_INTR BIT(10)
-#define BCM2835_I2C_C_I2CEN BIT(15)
+#define BCM2835_I2C_C_READ	BIT(0)
+#define BCM2835_I2C_C_CLEAR	BIT(4) /* bits 4 and 5 both clear */
+#define BCM2835_I2C_C_ST	BIT(7)
+#define BCM2835_I2C_C_INTD	BIT(8)
+#define BCM2835_I2C_C_INTT	BIT(9)
+#define BCM2835_I2C_C_INTR	BIT(10)
+#define BCM2835_I2C_C_I2CEN	BIT(15)
 
-#define BCM2835_I2C_S_TA BIT(0)
-#define BCM2835_I2C_S_DONE BIT(1)
-#define BCM2835_I2C_S_TXW BIT(2)
-#define BCM2835_I2C_S_RXR BIT(3)
-#define BCM2835_I2C_S_TXD BIT(4)
-#define BCM2835_I2C_S_RXD BIT(5)
-#define BCM2835_I2C_S_TXE BIT(6)
-#define BCM2835_I2C_S_RXF BIT(7)
-#define BCM2835_I2C_S_ERR BIT(8)
-#define BCM2835_I2C_S_CLKT BIT(9)
-#define BCM2835_I2C_S_LEN BIT(10) /* Fake bit for SW error reporting */
+#define BCM2835_I2C_S_TA	BIT(0)
+#define BCM2835_I2C_S_DONE	BIT(1)
+#define BCM2835_I2C_S_TXW	BIT(2)
+#define BCM2835_I2C_S_RXR	BIT(3)
+#define BCM2835_I2C_S_TXD	BIT(4)
+#define BCM2835_I2C_S_RXD	BIT(5)
+#define BCM2835_I2C_S_TXE	BIT(6)
+#define BCM2835_I2C_S_RXF	BIT(7)
+#define BCM2835_I2C_S_ERR	BIT(8)
+#define BCM2835_I2C_S_CLKT	BIT(9)
+#define BCM2835_I2C_S_LEN	BIT(10) /* Fake bit for SW error reporting */
 
-#define BCM2835_I2C_FEDL_SHIFT 16
-#define BCM2835_I2C_REDL_SHIFT 0
+#define BCM2835_I2C_FEDL_SHIFT	16
+#define BCM2835_I2C_REDL_SHIFT	0
 
-#define BCM2835_I2C_CDIV_MIN 0x0002
-#define BCM2835_I2C_CDIV_MAX 0xFFFE
+#define BCM2835_I2C_CDIV_MIN	0x0002
+#define BCM2835_I2C_CDIV_MAX	0xFFFE
 
 static unsigned int debug;
 module_param(debug, uint, 0644);
@@ -64,7 +64,7 @@ static unsigned int clk_tout_ms = 35; /* SMBUs-recommended 35ms */
 module_param(clk_tout_ms, uint, 0644);
 MODULE_PARM_DESC(clk_tout_ms, "clock-stretch timeout (mS)");
 
-#define BCM2835_DEBUG_MAX 512
+#define BCM2835_DEBUG_MAX	512
 struct bcm2835_debug {
 	struct i2c_msg *msg;
 	int msg_idx;
@@ -96,7 +96,7 @@ static inline void bcm2835_debug_add(struct bcm2835_i2c_dev *i2c_dev, u32 s)
 
 	i2c_dev->debug[i2c_dev->debug_num].msg = i2c_dev->curr_msg;
 	i2c_dev->debug[i2c_dev->debug_num].msg_idx =
-		i2c_dev->debug_num_msgs - i2c_dev->num_msgs;
+				i2c_dev->debug_num_msgs - i2c_dev->num_msgs;
 	i2c_dev->debug[i2c_dev->debug_num].remain = i2c_dev->msg_buf_remaining;
 	i2c_dev->debug[i2c_dev->debug_num].status = s;
 	i2c_dev->debug_num++;
@@ -108,7 +108,8 @@ static void bcm2835_debug_print_status(struct bcm2835_i2c_dev *i2c_dev,
 	u32 s = d->status;
 
 	pr_info("isr: remain=%zu, status=0x%x : %s%s%s%s%s%s%s%s%s%s [i2c%d]\n",
-		d->remain, s, s & BCM2835_I2C_S_TA ? "TA " : "",
+		d->remain, s,
+		s & BCM2835_I2C_S_TA ? "TA " : "",
 		s & BCM2835_I2C_S_DONE ? "DONE " : "",
 		s & BCM2835_I2C_S_TXW ? "TXW " : "",
 		s & BCM2835_I2C_S_RXR ? "RXR " : "",
@@ -117,7 +118,8 @@ static void bcm2835_debug_print_status(struct bcm2835_i2c_dev *i2c_dev,
 		s & BCM2835_I2C_S_TXE ? "TXE " : "",
 		s & BCM2835_I2C_S_RXF ? "RXF " : "",
 		s & BCM2835_I2C_S_ERR ? "ERR " : "",
-		s & BCM2835_I2C_S_CLKT ? "CLKT " : "", i2c_dev->adapter.nr);
+		s & BCM2835_I2C_S_CLKT ? "CLKT " : "",
+		i2c_dev->adapter.nr);
 }
 
 static void bcm2835_debug_print_msg(struct bcm2835_i2c_dev *i2c_dev,
@@ -125,14 +127,16 @@ static void bcm2835_debug_print_msg(struct bcm2835_i2c_dev *i2c_dev,
 				    const char *fname)
 {
 	pr_info("%s: msg(%d/%d) %s addr=0x%02x, len=%u flags=%s%s%s%s%s%s%s [i2c%d]\n",
-		fname, i, total, msg->flags & I2C_M_RD ? "read" : "write",
-		msg->addr, msg->len, msg->flags & I2C_M_TEN ? "TEN" : "",
+		fname, i, total,
+		msg->flags & I2C_M_RD ? "read" : "write", msg->addr, msg->len,
+		msg->flags & I2C_M_TEN ? "TEN" : "",
 		msg->flags & I2C_M_RECV_LEN ? "RECV_LEN" : "",
 		msg->flags & I2C_M_NO_RD_ACK ? "NO_RD_ACK" : "",
 		msg->flags & I2C_M_IGNORE_NAK ? "IGNORE_NAK" : "",
 		msg->flags & I2C_M_REV_DIR_ADDR ? "REV_DIR_ADDR" : "",
 		msg->flags & I2C_M_NOSTART ? "NOSTART" : "",
-		msg->flags & I2C_M_STOP ? "STOP" : "", i2c_dev->adapter.nr);
+		msg->flags & I2C_M_STOP ? "STOP" : "",
+		i2c_dev->adapter.nr);
 }
 
 static void bcm2835_debug_print(struct bcm2835_i2c_dev *i2c_dev)
@@ -144,8 +148,7 @@ static void bcm2835_debug_print(struct bcm2835_i2c_dev *i2c_dev)
 		d = &i2c_dev->debug[i];
 		if (d->status == ~0)
 			bcm2835_debug_print_msg(i2c_dev, d->msg, d->msg_idx,
-						i2c_dev->debug_num_msgs,
-						"start_transfer");
+				i2c_dev->debug_num_msgs, "start_transfer");
 		else
 			bcm2835_debug_print_status(i2c_dev, d);
 	}
@@ -153,8 +156,8 @@ static void bcm2835_debug_print(struct bcm2835_i2c_dev *i2c_dev)
 		pr_info("BCM2835_DEBUG_MAX reached\n");
 }
 
-static inline void bcm2835_i2c_writel(struct bcm2835_i2c_dev *i2c_dev, u32 reg,
-				      u32 val)
+static inline void bcm2835_i2c_writel(struct bcm2835_i2c_dev *i2c_dev,
+				      u32 reg, u32 val)
 {
 	writel(val, i2c_dev->regs + reg);
 }
@@ -171,7 +174,7 @@ struct clk_bcm2835_i2c {
 };
 
 static int clk_bcm2835_i2c_calc_divider(unsigned long rate,
-					unsigned long parent_rate)
+				unsigned long parent_rate)
 {
 	u32 divider = DIV_ROUND_UP(parent_rate, rate);
 
@@ -190,7 +193,7 @@ static int clk_bcm2835_i2c_calc_divider(unsigned long rate,
 }
 
 static int clk_bcm2835_i2c_set_rate(struct clk_hw *hw, unsigned long rate,
-				    unsigned long parent_rate)
+				unsigned long parent_rate)
 {
 	struct clk_bcm2835_i2c *div = to_clk_bcm2835_i2c(hw);
 	u32 redl, fedl;
@@ -217,15 +220,15 @@ static int clk_bcm2835_i2c_set_rate(struct clk_hw *hw, unsigned long rate,
 
 	bcm2835_i2c_writel(div->i2c_dev, BCM2835_I2C_DEL,
 			   (fedl << BCM2835_I2C_FEDL_SHIFT) |
-				   (redl << BCM2835_I2C_REDL_SHIFT));
+			   (redl << BCM2835_I2C_REDL_SHIFT));
 
 	/*
 	 * Set the clock stretch timeout.
 	 */
-	if (rate > 0xffff * 1000 / clk_tout_ms)
-		clk_tout = 0xffff;
+	if (rate > 0xffff*1000/clk_tout_ms)
+	    clk_tout = 0xffff;
 	else
-		clk_tout = clk_tout_ms * rate / 1000;
+	    clk_tout = clk_tout_ms*rate/1000;
 
 	bcm2835_i2c_writel(div->i2c_dev, BCM2835_I2C_CLKT, clk_tout);
 
@@ -233,7 +236,7 @@ static int clk_bcm2835_i2c_set_rate(struct clk_hw *hw, unsigned long rate,
 }
 
 static long clk_bcm2835_i2c_round_rate(struct clk_hw *hw, unsigned long rate,
-				       unsigned long *parent_rate)
+				unsigned long *parent_rate)
 {
 	u32 divider = clk_bcm2835_i2c_calc_divider(rate, *parent_rate);
 
@@ -241,7 +244,7 @@ static long clk_bcm2835_i2c_round_rate(struct clk_hw *hw, unsigned long rate,
 }
 
 static unsigned long clk_bcm2835_i2c_recalc_rate(struct clk_hw *hw,
-						 unsigned long parent_rate)
+						unsigned long parent_rate)
 {
 	struct clk_bcm2835_i2c *div = to_clk_bcm2835_i2c(hw);
 	u32 divider = bcm2835_i2c_readl(div->i2c_dev, BCM2835_I2C_DIV);
@@ -256,8 +259,8 @@ static const struct clk_ops clk_bcm2835_i2c_ops = {
 };
 
 static struct clk *bcm2835_i2c_register_div(struct device *dev,
-					    struct clk *mclk,
-					    struct bcm2835_i2c_dev *i2c_dev)
+					struct clk *mclk,
+					struct bcm2835_i2c_dev *i2c_dev)
 {
 	struct clk_init_data init;
 	struct clk_bcm2835_i2c *priv;
@@ -270,7 +273,7 @@ static struct clk *bcm2835_i2c_register_div(struct device *dev,
 
 	init.ops = &clk_bcm2835_i2c_ops;
 	init.name = name;
-	init.parent_names = (const char *[]){ mclk_name };
+	init.parent_names = (const char* []) { mclk_name };
 	init.num_parents = 1;
 	init.flags = 0;
 
@@ -308,8 +311,8 @@ static void bcm2835_drain_rxfifo(struct bcm2835_i2c_dev *i2c_dev)
 		val = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_S);
 		if (!(val & BCM2835_I2C_S_RXD))
 			break;
-		*i2c_dev->msg_buf =
-			bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_FIFO);
+		*i2c_dev->msg_buf = bcm2835_i2c_readl(i2c_dev,
+						      BCM2835_I2C_FIFO);
 		i2c_dev->msg_buf++;
 		i2c_dev->msg_buf_remaining--;
 	}
@@ -387,8 +390,7 @@ static irqreturn_t bcm2835_i2c_isr(int this_irq, void *data)
 
 	if (val & BCM2835_I2C_S_DONE) {
 		if (!i2c_dev->curr_msg) {
-			dev_err(i2c_dev->dev,
-				"Got unexpected interrupt (from firmware?)\n");
+			dev_err(i2c_dev->dev, "Got unexpected interrupt (from firmware?)\n");
 		} else if (i2c_dev->curr_msg->flags & I2C_M_RD) {
 			bcm2835_drain_rxfifo(i2c_dev);
 			val = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_S);
@@ -429,9 +431,8 @@ static irqreturn_t bcm2835_i2c_isr(int this_irq, void *data)
 
 complete:
 	bcm2835_i2c_writel(i2c_dev, BCM2835_I2C_C, BCM2835_I2C_C_CLEAR);
-	bcm2835_i2c_writel(i2c_dev, BCM2835_I2C_S,
-			   BCM2835_I2C_S_CLKT | BCM2835_I2C_S_ERR |
-				   BCM2835_I2C_S_DONE);
+	bcm2835_i2c_writel(i2c_dev, BCM2835_I2C_S, BCM2835_I2C_S_CLKT |
+			   BCM2835_I2C_S_ERR | BCM2835_I2C_S_DONE);
 	complete(&i2c_dev->completion);
 
 	return IRQ_HANDLED;
@@ -450,14 +451,12 @@ static int bcm2835_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 
 	if (debug > 2)
 		for (i = 0; i < num; i++)
-			bcm2835_debug_print_msg(i2c_dev, &msgs[i], i + 1, num,
-						__func__);
+			bcm2835_debug_print_msg(i2c_dev, &msgs[i], i + 1, num, __func__);
 
 	for (i = 0; i < (num - 1); i++) {
 		if (msgs[i].flags & I2C_M_RD) {
-			dev_warn_once(
-				i2c_dev->dev,
-				"only one read message supported, has to be last\n");
+			dev_warn_once(i2c_dev->dev,
+				      "only one read message supported, has to be last\n");
 			return -EOPNOTSUPP;
 		}
 		if (msgs[i].flags & I2C_M_IGNORE_NAK)
@@ -484,7 +483,8 @@ static int bcm2835_i2c_xfer(struct i2c_adapter *adap, struct i2c_msg msgs[],
 	i2c_dev->debug_num_msgs = 0;
 	i2c_dev->debug_num = 0;
 	if (!time_left) {
-		bcm2835_i2c_writel(i2c_dev, BCM2835_I2C_C, BCM2835_I2C_C_CLEAR);
+		bcm2835_i2c_writel(i2c_dev, BCM2835_I2C_C,
+				   BCM2835_I2C_C_CLEAR);
 		dev_err(i2c_dev->dev, "i2c transfer timed out\n");
 		return -ETIMEDOUT;
 	}
@@ -508,8 +508,8 @@ static u32 bcm2835_i2c_func(struct i2c_adapter *adap)
 }
 
 static const struct i2c_algorithm bcm2835_i2c_algo = {
-	.master_xfer = bcm2835_i2c_xfer,
-	.functionality = bcm2835_i2c_func,
+	.master_xfer	= bcm2835_i2c_xfer,
+	.functionality	= bcm2835_i2c_func,
 };
 
 /*

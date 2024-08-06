@@ -213,7 +213,7 @@ impl<T: UartPortOps> PortRegistration<T> {
             pr_warn!("this uart port driver is already registered\n");
             return Err(EINVAL);
         }
-        let port = &mut this.uart_port;
+        let mut port = &mut this.uart_port;
         port.0.dev = dev.raw_device();
             // port.irq = irq;
             // port.membase = membase;
