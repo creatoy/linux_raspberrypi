@@ -117,9 +117,7 @@ impl I2cAdapter {
     }
 
     pub unsafe fn i2c_set_adapdata<T>(&mut self, data: *mut T) {
-        unsafe {
-            self.0.dev.driver_data = data as *mut c_void;
-        }
+        unsafe { bindings::dev_set_drvdata(&self.0.dev as *const _ as *mut _, data as *mut c_void) }
     }
 
     pub fn i2c_add_adapter(&self) -> Result {

@@ -222,11 +222,9 @@ impl Device {
     }
 
     /// Allocate(kmalloc) and return the corresponding mutable pointer.
-    pub fn kmalloc<T>(&self) -> Result<*mut T> {
+    pub fn kmalloc<T>(&self, gfp: bindings::gfp_t) -> Result<*mut T> {
         let size = core::mem::size_of::<T>();
-        let ptr = unsafe {
-            bindings::devm_kmalloc(self.ptr, size, bindings::GFP_KERNEL | bindings::__GFP_ZERO)
-        };
+        let ptr = unsafe { bindings::devm_kmalloc(self.ptr, size, gfp) };
         if ptr.is_null() {
             return Err(ENOMEM);
         }
@@ -253,13 +251,15 @@ impl Device {
     }
 
     // Find and read an array of 32 bit from a property.
-    pub unsafe fn of_property_read_u32(&self, propname: &'static CStr, out_values: *mut u32) -> Result {
+    pub fn of_property_read_u32(&self, propname: &'static CStr, out_values: &mut u32) -> Result {
+        // SAFETY: The safety requirements are satisfied by the existence of `RawDevice` and its
+        // safety requirements.
         let ret = unsafe {
             let np = (*self.raw_device()).of_node;
             bindings::of_property_read_variable_u32_array(
                 np,
                 propname.as_char_ptr(),
-                out_values,
+                out_values as *mut u32,
                 1,
                 0,
             )

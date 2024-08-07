@@ -20,11 +20,11 @@ use kernel::{
     prelude::*,
     str::CString,
     sync::Arc,
-    {c_str, container_of, define_of_id_table, module_platform_driver},
+    {c_str, container_of, define_of_id_table, module_platform_driver, new_completion},
 };
 
 /// I2C 地址预留空间
-const I2C_SIZE: usize = 0x100;
+const I2C_SIZE: usize = 0x200;
 
 /// I2C 控制寄存器地址偏移
 pub const BCM2835_I2C_C: usize = 0x0;
@@ -97,7 +97,7 @@ struct Bcm2835Debug {
 // Use Vec<T> as a ptr buf
 struct Bcm2835I2cDev {
     dev: Device,
-    regs: IoMem<I2C_SIZE>,
+    reg_base: *mut u8,
     irq: i32,
     adapter: I2cAdapter,
     completion: Completion,
@@ -221,13 +221,13 @@ impl ClkOps for ClkBcm2835I2cOps {
 
 impl Bcm2835I2cDev {
     pub(crate) fn bcm2835_i2c_writel(&mut self, reg: usize, val: u32) {
-        let i2c_reg = self.regs.get();
+        let i2c_reg = self.reg_base;
         let addr = i2c_reg.wrapping_add(reg);
         unsafe { bindings::writel(val as _, addr as _) }
     }
 
     pub(crate) fn bcm2835_i2c_readl(&mut self, reg: usize) -> u32 {
-        let i2c_reg = self.regs.get();
+        let i2c_reg = self.reg_base;
         let addr = i2c_reg.wrapping_add(reg);
         unsafe { bindings::readl(addr as _) }
     }
@@ -402,6 +402,10 @@ fn bcm2835_i2c_isr(this_irq: i32, data: *mut core::ffi::c_void) -> irq::Return {
     irq::Return::None
 }
 
+unsafe extern "C" fn bcm2835_i2c_isr_cb(this_irq: i32, data: *mut core::ffi::c_void) -> u32 {
+    bcm2835_i2c_isr(this_irq, data) as u32
+}
+
 fn goto_complete(i2c_dev: &mut Bcm2835I2cDev) -> irq::Return {
     i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, BCM2835_I2C_C_CLEAR);
     i2c_dev.bcm2835_i2c_writel(
@@ -538,14 +542,49 @@ impl platform::Driver for Bcm2835I2cDriver {
         pdev: &mut platform::Device,
         id_info: core::prelude::v1::Option<&Self::IdInfo>,
     ) -> Result<Self::Data> {
-        pr_info!("BCM2835 i2c bus device ({}) driver probe.\n", pdev.name());
+        dev_info!(
+            pdev,
+            "BCM2835 i2c bus device ({}) driver probe.\n",
+            pdev.name()
+        );
 
-        // TODO: initialize and probe i2c driver
-        /*let i2c_dev = unsafe {
-            let dev = &mut *(pdev.raw_device().dev) as &mut Device;
-            dev.kzall
-        };*/
-        // TODO: initialize i2c_dev
+        let dev = unsafe { Device::new(pdev.raw_device()) };
+        let i2c_dev_ptr: *mut Bcm2835I2cDev = dev.kzalloc::<Bcm2835I2cDev>()?;
+
+        let i2c_dev = unsafe { &mut (*i2c_dev_ptr) };
+        i2c_dev.dev = dev;
+        i2c_dev.completion.reinit();
+        i2c_dev.reg_base = pdev.ioremap_resource(0)?;
+        dev_info!(pdev, "I2c bus device reg_base: {:?}\n", i2c_dev.reg_base);
+
+        let mclk = i2c_dev.dev.clk_get()?;
+
+        // TODO: initialise i2c bus clock
+        // let bus_clk =
+
+        let mut bus_clk_rate = 0;
+        let ret = i2c_dev
+            .dev
+            .of_property_read_u32(c_str!("clock-frequency"), &mut bus_clk_rate);
+        dev_info!(pdev, "I2c bus device clock-frequency: {}\n", bus_clk_rate);
+
+        let irq = pdev.irq_resource(0)?;
+        i2c_dev.irq = irq;
+
+        let ret = unsafe {
+            bindings::request_threaded_irq(
+                irq as u32,
+                Some(bcm2835_i2c_isr_cb),
+                None,
+                bindings::IRQF_SHARED as u64,
+                c_str!("i2c_bcm2835_rust").as_char_ptr(),
+                i2c_dev_ptr as *mut core::ffi::c_void,
+            )
+        };
+        if ret == 0 {
+            dev_err!(pdev, "Could not request IRQ: {}\n", irq);
+            // TODO: disable bus clock
+        }
 
         let dev_data =
             kernel::new_device_data!((), (), Bcm2835I2cData {}, "BCM2835_I2C device data")?;
