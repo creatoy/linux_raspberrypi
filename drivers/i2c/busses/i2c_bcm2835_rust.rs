@@ -603,6 +603,33 @@ impl platform::Driver for Bcm2835I2cDriver {
         }
         let _ = to_result(ret)?;
 
+        // TODO: setup i2c_adapter
+        let quirks = I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
+        let mut adap = i2c_dev.adapter;
+        unsafe {
+            adap.i2c_set_adapdata(i2c_dev);
+            // adap.set_owner();
+            adap.set_class(bindings::I2C_CLASS_DEPRECATED);
+        }
+        i2c_dev.adapter = adap;
+
+        /*
+         * Disable the hardware clock stretching timeout. SMBUS
+         * specifies a limit for how long the device can stretch the
+         * clock, but core I2C doesn't.
+         */
+        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_CLKT, 0);
+        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, 0);
+
+        let ret = unsafe { bindings::i2c_add_adapter(adap.as_ptr()) };
+        if ret < 0 {
+            dev_info!(pdev, "Could not add I2C adapter: {:?}\n", to_result(ret));
+            unsafe {
+                bindings::free_irq(irq as u32, i2c_dev_ptr as *mut core::ffi::c_void);
+            }
+        }
+        let _ = to_result(ret)?;
+
         let dev_data =
             kernel::new_device_data!((), (), Bcm2835I2cData {}, "BCM2835_I2C device data")?;
         /*
