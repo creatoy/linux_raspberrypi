@@ -560,10 +560,6 @@ impl platform::Driver for Bcm2835I2cDriver {
 
         let bus_clk = i2c_dev.bcm2835_i2c_register_div(mclk)?;
 
-        // return a new register clock
-        let new_clk = i2c_dev.bcm2835_i2c_register_div(mclk)?;
-        i2c_dev.bus_clk = *new_clk;
-
         let mut bus_clk_rate = 0;
         if let Err(_) = dev.of_property_read_u32(c_str!("clock-frequency"), &mut bus_clk_rate) {
             bus_clk_rate = bindings::I2C_MAX_STANDARD_MODE_FREQ;
