@@ -1,5 +1,7 @@
 use crate::{
+    device::{Device, RawDevice},
     error::{to_result, Result},
+    str::CStr,
     types::{ForeignOwnable, Opaque},
 };
 use alloc::vec::{self, Vec};
@@ -54,6 +56,10 @@ impl I2cAdapterQuirks {
     pub fn new() -> Self {
         let up = unsafe { MaybeUninit::<bindings::i2c_adapter_quirks>::zeroed().assume_init() };
         Self(up)
+    }
+
+    pub fn as_ptr(&self) -> *mut bindings::i2c_adapter_quirks {
+        &self.0 as *const _ as *mut _
     }
 
     pub fn set_flags(mut self, flags: u64) -> Self {
@@ -123,6 +129,39 @@ impl I2cAdapter {
     pub fn i2c_add_adapter(&self) -> Result {
         let ret = unsafe { bindings::i2c_add_adapter(self.as_ptr()) };
         to_result(ret)
+    }
+
+    pub fn set_name(&mut self, name: &CStr) {
+        let len = name.len().min(self.0.name.len() - 1);
+        let s = name.as_bytes();
+        for b in &s[0..len] {
+            self.0.name[0] = *b as i8;
+        }
+        self.0.name[len] = 0;
+    }
+
+    pub unsafe fn set_owner(&mut self, owner: *mut bindings::module) {
+        self.0.owner = owner
+    }
+
+    pub fn set_class(&mut self, class: u32) {
+        self.0.class = class
+    }
+
+    pub unsafe fn set_algorithm(&mut self, algorithm: *const bindings::i2c_algorithm) {
+        self.0.algo = algorithm
+    }
+
+    pub unsafe fn setup_device(&mut self, device: &Device) {
+        let dev_ptr = device.raw_device();
+        self.0.dev.parent = dev_ptr;
+        unsafe {
+            self.0.dev.of_node = (*dev_ptr).of_node;
+        }
+    }
+
+    pub unsafe fn set_quirks(&mut self, quirks: &I2cAdapterQuirks) {
+        self.0.quirks = &quirks.0 as *const _;
     }
 
     pub fn timeout(&self) -> usize {
