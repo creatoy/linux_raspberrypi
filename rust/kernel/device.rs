@@ -213,6 +213,17 @@ impl Device {
         Ok(Clk::from_raw(raw))
     }
 
+    /// Get node from dev
+    pub fn of_node(&self) -> Result<&mut DeviceNode> {
+        let raw = unsafe { from_err_ptr((*self.raw_device()).of_node)? };
+        
+        if raw.is_null() {
+            dev_err!(self, "not found of_node");
+            return Err(ENODEV);
+        }
+        Ok(DeviceNode::from_raw(raw))
+    }
+
     /// Allocate a new clock, register it and return an opaque cookie
     pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<&mut Clk> {
         // SAFETY: call ffi and ptr is valid
@@ -289,6 +300,14 @@ impl Clone for Device {
     }
 }
 
+pub struct DeviceNode(bindings::device_node);
+
+impl DeviceNode {
+    pub fn from_raw(ptr: *mut bindings::device_node) -> &mut Self {
+        let ptr = ptr.cast::<Self>();
+        unsafe { &mut *ptr }
+    }
+}
 /// Device data.
 ///
 /// When a device is removed (for whatever reason, for example, because the device was unplugged or

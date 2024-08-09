@@ -78,6 +78,7 @@ pub mod task;
 pub mod timekeeping;
 pub mod types;
 pub mod user_ptr;
+pub mod interrupt;
 
 use core::marker::PhantomData;
 
