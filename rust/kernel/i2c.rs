@@ -128,6 +128,14 @@ impl I2cAdapter {
     pub fn timeout(&self) -> usize {
         unsafe { self.0.timeout as usize }
     }
+    
+    //pub fn set_up(self)
+}
+
+impl Drop for I2cAdapter {
+    fn drop(&mut self) {
+        unsafe { bindings::i2c_del_adapter(self.as_ptr()) }
+    }
 }
 /// Represents i2c_smbus_data
 ///
