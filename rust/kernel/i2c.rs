@@ -177,8 +177,8 @@ impl<T: I2cAlgorithm> Adapter<T> {
         msgs: *mut bindings::i2c_msg,
         num: i32,
     ) -> core::ffi::c_int {
-        let adapter = unsafe { I2cAdapter::from_raw(adap) };
-        let messages = unsafe { I2cMsg::from_raw(msgs) };
+        let adapter = unsafe { I2cAdapter::as_ptr(adap) };
+        let messages = unsafe { I2cMsg::buf_to_vec(msgs) };
         T::master_xfer(&adapter, &messages, num)
     }
 
@@ -187,8 +187,8 @@ impl<T: I2cAlgorithm> Adapter<T> {
         msgs: *mut bindings::i2c_msg,
         num: i32,
     ) -> core::ffi::c_int {
-        let adapter = unsafe { I2cAdapter::from_raw(adap) };
-        let messages = unsafe { I2cMsg::from_raw(msgs) };
+        let adapter = unsafe { I2cAdapter::as_ptr(adap) };
+        let messages = unsafe { I2cMsg::buf_to_vec(msgs) };
         T::master_xfer_atomic(&adapter, &messages, num)
     }
 
@@ -201,8 +201,8 @@ impl<T: I2cAlgorithm> Adapter<T> {
         size: i32,
         data: *mut bindings::i2c_smbus_data,
     ) -> core::ffi::c_int {
-        let adapter = unsafe { I2cAdapter::from_raw(adap) };
-        let smbus_data = unsafe { I2cSmbusData::from_raw(data) };
+        let adapter = unsafe { I2cAdapter::as_ptr(adap) };
+        let smbus_data = unsafe { I2cSmbusData::buf_to_vec(data) };
         T::smbus_xfer(&adapter, addr, flags, read_write, command, size, &smbus_data)
     }
 
@@ -215,8 +215,8 @@ impl<T: I2cAlgorithm> Adapter<T> {
         size: i32,
         data: *mut bindings::i2c_smbus_data,
     ) -> core::ffi::c_int {
-        let adapter = unsafe { I2cAdapter::from_raw(adap) };
-        let smbus_data = unsafe { I2cSmbusData::from_raw(data) };
+        let adapter = unsafe { I2cAdapter::as_ptr(adap) };
+        let smbus_data = unsafe { I2cSmbusData::buf_to_vec(data) };
         T::smbus_xfer_atomic(&adapter, addr, flags, read_write, command, size, &smbus_data)
     }
 }
