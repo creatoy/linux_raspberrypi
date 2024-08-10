@@ -11,6 +11,7 @@ use crate::{
     dev_err,
     error::{code::*, from_err_ptr, to_result, Result},
     macros::pin_data,
+    of::DeviceNode,
     pin_init, pr_crit,
     str::CStr,
     sync::{
@@ -214,14 +215,10 @@ impl Device {
     }
 
     /// Get node from dev
-    pub fn of_node(&self) -> Result<&mut DeviceNode> {
-        let raw = unsafe { from_err_ptr((*self.raw_device()).of_node)? };
-        
-        if raw.is_null() {
-            dev_err!(self, "not found of_node");
-            return Err(ENODEV);
-        }
-        Ok(DeviceNode::from_raw(raw))
+    pub fn of_node(&self) -> &mut DeviceNode {
+        // safety: IS_ENABLED(CONFIG_OF) || dev ptr is valid
+        let ptr = unsafe { (*(self.raw_device())).of_node };
+        DeviceNode::from_raw(ptr)
     }
 
     /// Allocate a new clock, register it and return an opaque cookie
@@ -297,15 +294,6 @@ impl Drop for Device {
 impl Clone for Device {
     fn clone(&self) -> Self {
         Device::from_dev(self)
-    }
-}
-
-pub struct DeviceNode(bindings::device_node);
-
-impl DeviceNode {
-    pub fn from_raw(ptr: *mut bindings::device_node) -> &mut Self {
-        let ptr = ptr.cast::<Self>();
-        unsafe { &mut *ptr }
     }
 }
 /// Device data.

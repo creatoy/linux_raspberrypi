@@ -5,13 +5,7 @@
 //! C header: [`include/linux/completion.h`]
 //!
 
-use crate::{
-    types::Opaque,
-    str::CStr,
-    sync::LockClassKey,
-    prelude::PinInit,
-    bindings,
-};
+use crate::{bindings, prelude::PinInit, str::CStr, sync::LockClassKey, types::Opaque};
 
 /// Linux completion wrapper
 ///
@@ -42,8 +36,7 @@ impl Completion {
     /// Creates a new instance of [`Completion`].
     #[inline]
     #[allow(clippy::new_ret_no_self)]
-    pub fn new(name: &'static CStr, key: LockClassKey) -> impl PinInit<Self>
-    {
+    pub fn new(name: &'static CStr, key: LockClassKey) -> impl PinInit<Self> {
         unsafe {
             kernel::init::pin_init_from_closure(move |slot| {
                 let slot = Self::raw_get(slot);
@@ -73,25 +66,34 @@ impl Completion {
         unsafe { Opaque::raw_get(core::ptr::addr_of!((*ptr).0)) }
     }
 
-    /// completion reinit 
+    /// completion reinit
     pub fn reinit(&self) {
-        unsafe {(*(self.0.get())).done = 0;}
+        unsafe {
+            (*(self.0.get())).done = 0;
+        }
     }
 
     /// This waits to be signaled for completion of a specific task. It is NOT
     /// interruptible and there is no timeout.
     pub fn wait_for_completion(&self) {
         // SAFETY: call ffi and ptr is valid
-        unsafe{
-            bindings::wait_for_completion(self.0.get())
-        }
+        unsafe { bindings::wait_for_completion(self.0.get()) }
     }
 
-    /// complete 
+    /// complete
     pub fn complete(&self) {
         // SAFETY: call ffi and ptr is valid
+        unsafe { bindings::complete(self.0.get()) }
+    }
+
+    /// Initialize a dynamically allocated completion
+    pub fn init_completion(&self) {
         unsafe {
-            bindings::complete(self.0.get())
+            (*(self.0.get())).done = 0;
+            let wait = &mut (*(self.0.get())).wait;
+            let name = concat!(stringify!(wait), "\0").as_ptr() as *const core::ffi::c_char;
+            let key = LockClassKey().as_ptr();
+            bindings::__init_swait_queue_head(wait, name, key);
         }
     }
 
@@ -104,10 +106,10 @@ impl Completion {
             return 0;
         }
 
-        if left_jiff/(bindings::HZ as usize) == 0 {
+        if left_jiff / (bindings::HZ as usize) == 0 {
             return 1;
         } else {
-            return left_jiff/(bindings::HZ as usize);
+            return left_jiff / (bindings::HZ as usize);
         }
     }
 
@@ -117,7 +119,9 @@ impl Completion {
     fn wait_for_completion_timeout(&self, jiff: usize) -> usize {
         // SAFETY: call ffi and ptr is valid
         unsafe {
-            bindings::wait_for_completion_timeout(self.0.get(), jiff.try_into().unwrap()).try_into().unwrap()
+            bindings::wait_for_completion_timeout(self.0.get(), jiff.try_into().unwrap())
+                .try_into()
+                .unwrap()
         }
     }
 }

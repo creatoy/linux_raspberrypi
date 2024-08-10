@@ -2,7 +2,7 @@ use crate::{
     error::{to_result, Result},
     types::{ForeignOwnable, Opaque},
 };
-use alloc::vec::{self, Vec};
+use alloc::vec::Vec;
 use core::mem::MaybeUninit;
 use core::{ffi::c_void, marker::PhantomData};
 use macros::vtable;
@@ -128,7 +128,7 @@ impl I2cAdapter {
     pub fn timeout(&self) -> usize {
         unsafe { self.0.timeout as usize }
     }
-    
+
     //pub fn set_up(self)
 }
 

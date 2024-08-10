@@ -70,9 +70,6 @@ pub const BCM2835_I2C_REDL_SHIFT: u32 = 0;
 pub const BCM2835_I2C_CDIV_MIN: u32 = 0x0002;
 pub const BCM2835_I2C_CDIV_MAX: u32 = 0xFFFE;
 
-// Debug and Clk_tout_ms is static mut in C code.
-// Take as const for now.
-
 pub const DEBUG: i32 = 0;
 
 /// SMBUs-recommended 35ms

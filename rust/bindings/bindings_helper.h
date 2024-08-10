@@ -34,6 +34,7 @@
 #include <linux/clkdev.h>
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
+#include <linux/swait.h>
 
 /* `bindgen` gets confused at certain things. */
 const size_t BINDINGS_ARCH_SLAB_MINALIGN = ARCH_SLAB_MINALIGN;
