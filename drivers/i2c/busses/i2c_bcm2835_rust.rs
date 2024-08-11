@@ -605,13 +605,18 @@ impl platform::Driver for Bcm2835I2cDriver {
 
         // TODO: setup i2c_adapter
         let quirks = I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
-        let mut adap = i2c_dev.adapter;
+        // let mut adap = i2c_dev.adapter;
         unsafe {
-            adap.i2c_set_adapdata(i2c_dev);
-            // adap.set_owner();
-            adap.set_class(bindings::I2C_CLASS_DEPRECATED);
+            i2c_dev.adapter.i2c_set_adapdata(i2c_dev.as_ptr());
+            // TODO: set owner
+            // i2c_dev.adapter.set_owner((&bindings::__this_module) as *const _ as *mut _);
+            i2c_dev.adapter.set_class(bindings::I2C_CLASS_DEPRECATED);
+            let full_name = bindings::of_node_full_name((*pdev.raw_device()).of_node);
+            let adap_name =
+                CString::try_from_fmt(fmt!("bcm2835 ({})", CStr::from_char_ptr(full_name)))?;
+            i2c_dev.adapter.set_name(&adap_name);
         }
-        i2c_dev.adapter = adap;
+        // i2c_dev.adapter = adap;
 
         /*
          * Disable the hardware clock stretching timeout. SMBUS
@@ -621,7 +626,7 @@ impl platform::Driver for Bcm2835I2cDriver {
         i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_CLKT, 0);
         i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, 0);
 
-        let ret = unsafe { bindings::i2c_add_adapter(adap.as_ptr()) };
+        let ret = unsafe { bindings::i2c_add_adapter(i2c_dev.adapter.as_ptr()) };
         if ret < 0 {
             dev_info!(pdev, "Could not add I2C adapter: {:?}\n", to_result(ret));
             unsafe {
