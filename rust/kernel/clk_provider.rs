@@ -57,7 +57,7 @@ impl ClkHw {
     }
 
     // Register one clock lookup for a struct clk_hw
-    pub fn register_clkdev(&mut self, con_id: &'static CStr, dev_id: &'static CStr) -> Result {
+    pub fn register_clkdev(&mut self, con_id: &CStr, dev_id: &CStr) -> Result {
         let ret = unsafe {
             bindings::clk_hw_register_clkdev(
                 self.0.get(),
