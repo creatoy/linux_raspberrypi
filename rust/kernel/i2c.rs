@@ -263,7 +263,6 @@ pub trait I2cAlgorithm {
 pub(crate) struct Adapter<T: I2cAlgorithm>(PhantomData<T>);
 
 impl<T: I2cAlgorithm> Adapter<T> {
-    // TODO!
     unsafe extern "C" fn master_xfer_callback(
         _adap: *mut bindings::i2c_adapter,
         _msgs: *mut bindings::i2c_msg,
