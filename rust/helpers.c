@@ -262,6 +262,12 @@ const struct of_device_id *rust_helper_of_match_device(
 }
 EXPORT_SYMBOL_GPL(rust_helper_of_match_device);
 
+const char *rust_helper_of_node_full_name(const struct device_node *np)
+{
+	return rust_helper_of_node_full_name(np);
+}
+EXPORT_SYMBOL_GPL(rust_helper_of_node_full_name);
+
 void *rust_helper_platform_get_drvdata(const struct platform_device *pdev)
 {
 	return platform_get_drvdata(pdev);

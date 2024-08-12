@@ -72,6 +72,7 @@ impl Drop for Clk {
     fn drop(&mut self) {
         // SAFETY: The pointer is valid by the type invariant.
         unsafe {
+            bindings::clk_unprepare(self.0.get());
             bindings::clk_rate_exclusive_put(self.0.get());
             bindings::clk_put(self.0.get());
         }
