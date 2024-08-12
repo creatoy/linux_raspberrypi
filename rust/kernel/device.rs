@@ -11,6 +11,7 @@ use crate::{
     dev_err,
     error::{code::*, from_err_ptr, to_result, Result},
     macros::pin_data,
+    of::DeviceNode,
     pin_init, pr_crit,
     str::CStr,
     sync::{
@@ -213,6 +214,13 @@ impl Device {
         Ok(Clk::from_raw(raw))
     }
 
+    /// Get node from dev
+    pub fn of_node(&self) -> &mut DeviceNode {
+        // safety: IS_ENABLED(CONFIG_OF) || dev ptr is valid
+        let ptr = unsafe { (*(self.raw_device())).of_node };
+        DeviceNode::from_raw(ptr)
+    }
+
     /// Allocate a new clock, register it and return an opaque cookie
     pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<&mut Clk> {
         // SAFETY: call ffi and ptr is valid
@@ -288,7 +296,6 @@ impl Clone for Device {
         Device::from_dev(self)
     }
 }
-
 /// Device data.
 ///
 /// When a device is removed (for whatever reason, for example, because the device was unplugged or

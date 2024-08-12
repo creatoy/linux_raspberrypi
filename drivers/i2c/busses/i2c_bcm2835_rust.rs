@@ -1,9 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0
 
 //! BCM2835 master mode driver
-
-use core::ops::Not;
-
 use kernel::{
     bindings,
     clk::Clk,
@@ -74,9 +71,6 @@ pub const BCM2835_I2C_REDL_SHIFT: u32 = 0;
 pub const BCM2835_I2C_CDIV_MIN: u32 = 0x0002;
 pub const BCM2835_I2C_CDIV_MAX: u32 = 0xFFFE;
 
-// Debug and Clk_tout_ms is static mut in C code.
-// Take as const for now.
-
 pub const DEBUG: i32 = 0;
 
 /// SMBUs-recommended 35ms
@@ -133,8 +127,8 @@ struct ClkBcm2835I2c<'c> {
 
 impl<'c> ClkBcm2835I2c<'c> {
     fn from_raw<'a>(ptr: *mut Self) -> &'a mut Self {
-        let prt = ptr.cast::<Self>();
-        unsafe { &mut *prt }
+        let ptr = ptr.cast::<Self>();
+        unsafe { &mut *ptr }
     }
 }
 
@@ -196,12 +190,12 @@ fn clk_bcm2835_i2c_set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result<(
     Ok(())
 }
 
-fn clk_bcm2835_i2c_round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i32 {
+fn clk_bcm2835_i2c_round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i64 {
     let Ok(divider) = clk_bcm2835_i2c_calc_divider(rate, *parent_rate) else {
         return 0;
     };
 
-    parent_rate.div_ceil(divider) as i32
+    parent_rate.div_ceil(divider) as i64
 }
 
 fn clk_bcm2835_i2c_recalc_rate(hw: &ClkHw, parent_rate: u64) -> u64 {
@@ -654,6 +648,13 @@ impl platform::Driver for Bcm2835I2cDriver {
 
         let dev_data =
             kernel::new_device_data!((), (), Bcm2835I2cData {}, "BCM2835_I2C device data")?;
+        /*
+         * Disable the hardware clock stretching timeout. SMBUS
+         * specifies a limit for how long the device can stretch the
+         * clock, but core I2C doesn't.
+         */
+        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_CLKT, 0);
+        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, 0);
         Ok(dev_data.into())
     }
 

@@ -88,3 +88,30 @@ impl DeviceId {
         id
     }
 }
+
+pub struct Property(bindings::property);
+
+impl Property {
+    #[inline]
+    pub fn as_ptr(&self) -> *const bindings::property {
+        &self.0
+    }
+}
+
+pub struct DeviceNode(bindings::device_node);
+
+impl DeviceNode {
+    pub fn from_raw<'a>(ptr: *mut bindings::device_node) -> &'a mut Self {
+        let ptr = ptr.cast::<Self>();
+        unsafe { &mut *ptr }
+    }
+
+    #[inline]
+    pub fn as_ptr(&self) -> *const bindings::device_node {
+        &self.0
+    }
+
+    pub fn flags(&self) -> u64 {
+        self.0._flags
+    }
+}
