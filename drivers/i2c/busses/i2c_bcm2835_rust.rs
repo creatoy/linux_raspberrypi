@@ -12,7 +12,7 @@ use kernel::{
     device::{self, Device, RawDevice},
     driver::DeviceRemoval,
     error::to_result,
-    i2c::{self, I2cAdapter, I2cAdapterQuirks, I2cMsg, I2C_M_NOSTART, I2C_M_RD},
+    i2c::{self, I2cAdapter, I2cAdapterQuirks, I2cAlgorithm, I2cMsg, I2C_M_NOSTART, I2C_M_RD},
     io_mem::IoMem,
     irq,
     of::DeviceId,
@@ -421,7 +421,7 @@ fn goto_complete(i2c_dev: &mut Bcm2835I2cDev) -> irq::Return {
     irq::Return::Handled
 }
 
-fn bcm2835_i2c_xfer(adap: I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()> {
+fn bcm2835_i2c_xfer(adap: &mut I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<i32> {
     let i2c_dev = unsafe { &mut (*adap.i2c_get_adapdata::<Bcm2835I2cDev>()) };
     let mut ignore_nak = false;
 
@@ -479,7 +479,7 @@ fn bcm2835_i2c_xfer(adap: I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()>
     }
 
     if i2c_dev.msg_err == 0 {
-        return to_result(num);
+        return Ok(num);
     }
 
     if unsafe { DEBUG != 0 } {
@@ -493,7 +493,7 @@ fn bcm2835_i2c_xfer(adap: I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()>
     Err(EIO)
 }
 
-fn bcm2835_i2c_func(adap: I2cAdapter) -> u32 {
+fn bcm2835_i2c_func(adap: &I2cAdapter) -> u32 {
     i2c::I2C_FUNC_I2C | i2c::I2C_FUNC_10BIT_ADDR | i2c::I2C_FUNC_PROTOCOL_MANGLING
 }
 
@@ -502,6 +502,17 @@ fn bcm2835_i2c_func(adap: I2cAdapter) -> u32 {
 //    I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
 
 struct Bcm2835I2cAlgo;
+
+#[vtable]
+impl I2cAlgorithm for Bcm2835I2cAlgo {
+    fn master_xfer(adap: &mut I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<i32> {
+        bcm2835_i2c_xfer(adap, msgs, num)
+    }
+
+    fn functionality(adap: &mut I2cAdapter) -> u32 {
+        bcm2835_i2c_func(adap)
+    }
+}
 
 struct Bcm2835I2cData {}
 
@@ -620,6 +631,7 @@ impl platform::Driver for Bcm2835I2cDriver {
             let adap_name =
                 CString::try_from_fmt(fmt!("bcm2835 ({})", CStr::from_char_ptr(full_name)))?;
             i2c_dev.adapter.set_name(&adap_name);
+            i2c_dev.adapter.set_algorithm::<Bcm2835I2cAlgo>();
         }
         // i2c_dev.adapter = adap;
 
