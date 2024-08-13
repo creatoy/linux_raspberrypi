@@ -1,12 +1,13 @@
 use crate::{
     device::{Device, RawDevice},
-    error::{to_result, Result},
+    error::{from_result, to_result, Result},
+    prelude::ENOTSUPP,
     str::CStr,
     types::{ForeignOwnable, Opaque},
 };
 use alloc::vec::Vec;
-use core::mem::MaybeUninit;
 use core::{ffi::c_void, marker::PhantomData};
+use core::{mem::MaybeUninit, slice};
 use macros::vtable;
 
 pub const I2C_M_RD: u32 = bindings::I2C_M_RD;
@@ -70,11 +71,18 @@ impl I2cAdapterQuirks {
 
 /// Represents i2c_msg
 ///
-/// Note: buf is a raw pointer
 /// Note: all primitive fields are __u16 type in C, represented as u16 in Rust.
+/// Note: buf is a raw pointer
+/// Note: struct i2c_msg *msg is a i2c_msg ptr buf.
 pub struct I2cMsg(bindings::i2c_msg);
 
 impl I2cMsg {
+    // Create I2CMsg buf from raw pointer
+    pub fn from_raw<'a>(ptr: *mut bindings::i2c_msg, len: usize) -> &'a Vec<Self> {
+        let buf_ptr = unsafe { Vec::from_raw_parts(ptr.cast::<I2cMsg>(), len, len) };
+        unsafe { &*ptr }
+    }
+
     /// return flags of i2c_msg
     pub fn flags(&self) -> u16 {
         self.0.flags as u16
@@ -103,17 +111,16 @@ impl I2cMsg {
     }
 }
 
-/*
-impl Default for I2cMsg {
-    fn default() -> Self {
-        Self(bindings::i2c_msg::default())
-    }
-}*/
-
 /// Represents i2c_adapter
 ///
 pub struct I2cAdapter(bindings::i2c_adapter);
 impl I2cAdapter {
+    // Create I2CMsg from raw pointer
+    pub fn from_raw<'a>(ptr: *mut bindings::i2c_adapter) -> &'a Self {
+        let ptr = ptr.cast::<Self>();
+        unsafe { &*ptr }
+    }
+
     pub fn as_ptr(&self) -> *mut bindings::i2c_adapter {
         &self.0 as *const _ as *mut _
     }
@@ -178,8 +185,25 @@ impl Drop for I2cAdapter {
 }
 /// Represents i2c_smbus_data
 ///
-pub struct I2cSmbusData(Opaque<bindings::i2c_smbus_data>);
+pub struct I2cSmbusData(bindings::i2c_smbus_data);
 
+impl I2cSmbusData {
+    pub fn from_raw<'a>(ptr: *mut bindings::i2c_smbus_data) -> &'a Self {
+        let ptr = ptr.cast::<Self>();
+        unsafe { &*ptr }
+    }
+}
+
+/// Represents i2c_client
+///
+pub struct I2cClient(bindings::i2c_client);
+
+impl I2cClient {
+    pub fn from_raw<'a>(ptr: *mut bindings::i2c_client) -> &'a Self {
+        let ptr = ptr.cast::<Self>();
+        unsafe { &*ptr }
+    }
+}
 /// Represents i2c_algorithm
 ///
 #[vtable]
@@ -189,34 +213,156 @@ pub trait I2cAlgorithm {
 
     // Caution: May <Result>!
 
-    fn master_xfer(adap: &mut I2cAdapter, msgs: &mut I2cMsg, num: i32) -> i32;
+    fn master_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()> {
+        Err(ENOTSUPP)
+    }
 
-    fn master_xfer_atomic(adap: &mut I2cAdapter, msgs: &mut I2cMsg, num: i32) -> i32;
+    fn master_xfer_atomic(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()> {
+        Err(ENOTSUPP)
+    }
 
     // Caution: read_write is c_char, flags is c_ushort!
     fn smbus_xfer(
-        adap: &mut I2cAdapter,
+        adap: &I2cAdapter,
         addr: u16,
         flags: u16,
         read_write: u8,
         command: u8,
         size: i32,
-        data: &mut I2cSmbusData,
-    ) -> i32;
+        data: &I2cSmbusData,
+    ) -> Result<()> {
+        Err(ENOTSUPP)
+    }
 
     fn smbus_xfer_atomic(
-        adap: &mut I2cAdapter,
+        adap: &I2cAdapter,
         addr: u16,
         flags: u16,
         read_write: u8,
         command: u8,
         size: i32,
-        data: &mut I2cSmbusData,
-    ) -> i32;
+        data: &I2cSmbusData,
+    ) -> Result<()> {
+        Err(ENOTSUPP)
+    }
+
+    fn functionality(adap: &I2cAdapter) -> u32 {
+        0
+    }
+
+    // IS_ENABLED(CONFIG_I2C_SLAVE)
+    fn reg_slave(i2c_client: &I2cClient) -> Result<()> {
+        Err(ENOTSUPP)
+    }
+
+    fn unreg_slave(i2c_client: &I2cClient) -> Result<()> {
+        Err(ENOTSUPP)
+    }
 }
 
 pub(crate) struct Adapter<T: I2cAlgorithm>(PhantomData<T>);
 
 impl<T: I2cAlgorithm> Adapter<T> {
     // TODO!
+    unsafe extern "C" fn master_xfer_callback(
+        _adap: *mut bindings::i2c_adapter,
+        _msgs: *mut bindings::i2c_msg,
+        _num: core::ffi::c_int,
+    ) -> core::ffi::c_int {
+        from_result(|| {
+            let adap = unsafe { I2cAdapter::from_raw(_adap) };
+            let msgs = unsafe { I2cMsg::from_raw(_msgs, num as usize) };
+            T::master_xfer(adap, msgs, _num).and(0)
+        })
+    }
+    unsafe extern "C" fn master_xfer_atomic_callback(
+        adap: *mut i2c_adapter,
+        msgs: *mut i2c_msg,
+        num: core::ffi::c_int,
+    ) -> core::ffi::c_int {
+        from_result(|| {
+            let adap = unsafe { I2cAdapter::from_raw(adap) };
+            let msgs = unsafe { I2cMsg::from_raw(msgs, num as usize) };
+            T::master_xfer_atomic(adap, msgs, num)
+        })
+    }
+
+    unsafe extern "C" fn smbus_xfer_callback(
+        adap: *mut i2c_adapter,
+        addr: u16_,
+        flags: core::ffi::c_ushort,
+        read_write: core::ffi::c_char,
+        command: u8_,
+        size: core::ffi::c_int,
+        data: *mut i2c_smbus_data,
+    ) -> core::ffi::c_int {
+        from_result(|| {
+            let adap = unsafe { I2cAdapter::from_raw(adap) };
+            let data = unsafe { I2cSmbusData::from_raw(data) };
+            T::smbus_xfer(adap, addr, flags, read_write, command, size, data).and(Ok(0))
+        })
+    }
+
+    unsafe extern "C" fn smbus_xfer_atomic_callback(
+        adap: *mut i2c_adapter,
+        addr: u16_,
+        flags: core::ffi::c_ushort,
+        read_write: core::ffi::c_char,
+        command: u8_,
+        size: core::ffi::c_int,
+        data: *mut i2c_smbus_data,
+    ) -> core::ffi::c_int {
+        from_result(|| {
+            let adap = unsafe { I2cAdapter::from_raw(adap) };
+            let data = unsafe { I2cSmbusData::from_raw(data) };
+            T::smbus_xfer_atomic(adap, addr, flags, read_write, command, size, data).and(Ok(0))
+        })
+    }
+
+    unsafe extern "C" fn functionality_callback(adap: *mut i2c_adapter) -> u32 {
+        let adap = unsafe { I2cAdapter::from_raw(adap) };
+        T::functionality(adap)
+    }
+
+    const VTABLE: bindings::i2c_algorithm = bindings::i2c_algorithm {
+        master_xfer: if T::HAS_MASTER_XFER {
+            Some(Adapter::<T>::master_xfer_callback)
+        } else {
+            None
+        },
+        master_xfer_atomic: if T::HAS_MASTER_XFER_ATOMIC {
+            Some(Adapter::<T>::master_xfer_atomic_callback)
+        } else {
+            None
+        },
+        smbus_xfer: if T::HAS_SMBUS_XFER {
+            Some(Adapter::<T>::smbus_xfer_callback)
+        } else {
+            None
+        },
+        smbus_xfer_atomic: if T::HAS_SMBUS_XFER_ATOMIC {
+            Some(Adapter::<T>::smbus_xfer_atomic_callback)
+        } else {
+            None
+        },
+        functionality: if T::HAS_FUNCTIONALITY {
+            Some(Adapter::<T>::functionality_callback)
+        } else {
+            None
+        },
+        reg_slave: if T::HAS_REG_SLAVE {
+            Some(Adapter::<T>::reg_slave_callback)
+        } else {
+            None
+        },
+        unreg_slave: if T::HAS_UNREG_SLAVE {
+            Some(Adapter::<T>::unreg_slave_callback)
+        } else {
+            None
+        },
+    };
+
+    const fn build() -> &'static bindings::i2c_algorithm {
+        &Adapter::<T>::VTABLE
+    }
 }
