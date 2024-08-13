@@ -416,7 +416,7 @@ unsafe extern "C" fn bcm2835_i2c_isr_cb(this_irq: i32, data: *mut core::ffi::c_v
     bcm2835_i2c_isr(this_irq, unsafe { &mut *data.cast() }) as u32
 }
 
-fn bcm2835_i2c_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()> {
+fn bcm2835_i2c_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<i32> {
     let i2c_dev = unsafe { &mut (*adap.i2c_get_adapdata::<Bcm2835I2cDev>()) };
     let mut ignore_nak = false;
 
@@ -495,13 +495,27 @@ fn bcm2835_i2c_func(adap: &I2cAdapter) -> u32 {
 
 struct Bcm2835I2cAlgo;
 
-static BCM2835_I2C_QUIRKS: I2cAdapterQuirks =
-    I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
+#[vtable]
+impl I2cAlgorithm for Bcm2835I2cAlgo {
+    fn master_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<i32> {
+        bcm2835_i2c_xfer(adap, msgs, num)
+    }
 
+    fn functionality(adap: &I2cAdapter) -> u32 {
+        bcm2835_i2c_func(adap)
+    }
+}
+
+//static BCM2835_I2C_QUIRKS: I2cAdapterQuirks =
+    //I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
+
+struct Bcm2835I2cData {}
 unsafe impl Sync for Bcm2835I2cDev {}
 unsafe impl Send for Bcm2835I2cDev {}
+unsafe impl Sync for Bcm2835I2cData {}
+unsafe impl Send for Bcm2835I2cData {}
 
-type DeviceData = device::Data<(), (), Bcm2835I2cDev>;
+type DeviceData = device::Data<(), (), Bcm2835I2cData>;
 
 impl platform::Driver for Bcm2835I2cDriver {
     kernel::driver_of_id_table!(BCM2835_I2C_ID_TABLE);
@@ -659,7 +673,7 @@ impl platform::Driver for Bcm2835I2cDriver {
 
 kernel::define_of_id_table! {BCM2835_I2C_ID_TABLE, (), [
     (DeviceId::Compatible(b"brcm,bcm2711-i2c"), None),
-    (DeviceId::Compatible(b"brcm,bcm2835-i2c"), Some(BCM2835_I2C_QUIRKS)),
+    (DeviceId::Compatible(b"brcm,bcm2835-i2c"), None),
 ]}
 
 kernel::module_of_id_table!(BCM2835_I2C_MOD_TABLE, BCM2835_I2C_ID_TABLE);
