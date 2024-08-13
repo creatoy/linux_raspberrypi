@@ -10,7 +10,7 @@ use crate::{
     irq,
     str::CStr,
 };
-use core::{marker::PhantomData, task::Context};
+use core::marker::PhantomData;
 
 pub const IRQF_TRIGGER_NONE: u32 = bindings::IRQF_TRIGGER_NONE;
 pub const IRQF_TRIGGER_RISING: u32 = bindings::IRQF_TRIGGER_RISING;

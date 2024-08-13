@@ -2,22 +2,23 @@
 
 //! BCM2835 master mode driver
 use kernel::{
-    bindings,
+    bindings, c_str,
     clk::Clk,
     clk_provider::{ClkHw, ClkInitData, ClkOps},
     completion::Completion,
+    container_of, define_of_id_table,
     device::{self, Device, RawDevice},
     driver::DeviceRemoval,
     error::to_result,
     i2c::{self, I2cAdapter, I2cAdapterQuirks, I2cAlgorithm, I2cMsg, I2C_M_NOSTART, I2C_M_RD},
+    interrupt::{request_irq, IrqHandler, IRQF_SHARED},
     io_mem::IoMem,
-    irq,
+    irq, module_platform_driver, new_completion,
     of::DeviceId,
     platform,
     prelude::*,
     str::CString,
     sync::Arc,
-    {c_str, container_of, define_of_id_table, module_platform_driver, new_completion},
 };
 
 /// I2C 地址预留空间
@@ -338,7 +339,6 @@ impl Bcm2835I2cDev {
     }
 }
 
-// TODO: impl interrupt irq_handler
 fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
     let i2c_dev = unsafe { &mut *(data as *mut Bcm2835I2cDev) };
 
@@ -410,6 +410,16 @@ fn goto_complete(i2c_dev: &mut Bcm2835I2cDev) -> irq::Return {
     i2c_dev.completion.complete();
 
     irq::Return::Handled
+}
+
+struct Bcm2835I2cIrqHandler;
+
+impl IrqHandler for Bcm2835I2cIrqHandler {
+    type Context = Bcm2835I2cDev;
+
+    fn handler(irq: i32, ctx: &mut Self::Context) -> irq::Return {
+        bcm2835_i2c_isr(irq, ctx)
+    }
 }
 
 unsafe extern "C" fn bcm2835_i2c_isr_cb(this_irq: i32, data: *mut core::ffi::c_void) -> u32 {
@@ -507,7 +517,7 @@ impl I2cAlgorithm for Bcm2835I2cAlgo {
 }
 
 //static BCM2835_I2C_QUIRKS: I2cAdapterQuirks =
-    //I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
+//I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
 
 struct Bcm2835I2cData {}
 unsafe impl Sync for Bcm2835I2cDev {}
@@ -568,7 +578,7 @@ impl platform::Driver for Bcm2835I2cDriver {
 
         let irq = pdev.irq_resource(0)?;
 
-        let ret = unsafe {
+        /*let ret = unsafe {
             bindings::request_threaded_irq(
                 irq as u32,
                 Some(bcm2835_i2c_isr_cb),
@@ -581,7 +591,15 @@ impl platform::Driver for Bcm2835I2cDriver {
         if ret < 0 {
             dev_err!(pdev, "Could not request IRQ: {}\n", irq);
             to_result(ret)?;
-        }
+        }*/
+
+        request_irq(
+            irq as u32,
+            Bcm2835I2cIrqHandler,
+            IRQF_SHARED as u64,
+            c_str!("i2c_bcm2835_rust"),
+            &i2c_dev,
+        )?;
         i2c_dev.irq = irq;
 
         // TODO: setup i2c_adapter
