@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 
 //! BCM2835 master mode driver
+use core::ops::Deref;
+
 use kernel::{
     bindings, c_str,
     clk::Clk,
@@ -525,7 +527,7 @@ unsafe impl Send for Bcm2835I2cDev {}
 unsafe impl Sync for Bcm2835I2cData {}
 unsafe impl Send for Bcm2835I2cData {}
 
-type DeviceData = device::Data<(), (), Bcm2835I2cData>;
+type DeviceData = device::Data<(), (), Bcm2835I2cDev>;
 
 impl platform::Driver for Bcm2835I2cDriver {
     kernel::driver_of_id_table!(BCM2835_I2C_ID_TABLE);
@@ -667,8 +669,8 @@ impl platform::Driver for Bcm2835I2cDriver {
         }
         let _ = to_result(ret)?;
 
-        let dev_data =
-            kernel::new_device_data!((), (), Bcm2835I2cData {}, "BCM2835_I2C device data")?;
+        let item = unsafe { Box::from_raw(i2c_dev_ptr) };
+        let dev_data = kernel::new_device_data!((), (), *item, "BCM2835_I2C device data")?;
         /*
          * Disable the hardware clock stretching timeout. SMBUS
          * specifies a limit for how long the device can stretch the
