@@ -9,7 +9,8 @@ use kernel::{
     device::{self, Device, RawDevice},
     driver::DeviceRemoval,
     error::to_result,
-    i2c::{self, I2cAdapter, I2cAdapterQuirks, I2cMsg, I2C_M_NOSTART, I2C_M_RD},
+    i2c::{self, I2cAdapter, I2cAdapterQuirks, I2cAlgorithm, I2cMsg, I2C_M_NOSTART, I2C_M_RD},
+    io_mem::IoMem,
     irq,
     of::DeviceId,
     platform,
@@ -254,6 +255,10 @@ impl Bcm2835I2cDev {
             clk_i2c
         };
 
+        // Ensure these objects live long enough
+        // TODO: Try to achieve this in a more elegant way
+        // let _ = (name, parent_names, init_data);
+
         self.dev.clk_register(&mut clk_i2c.hw)
     }
 
@@ -469,7 +474,7 @@ fn bcm2835_i2c_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()
     }
 
     if i2c_dev.msg_err == 0 {
-        return to_result(num);
+        return Ok(num);
     }
 
     if unsafe { DEBUG != 0 } {
@@ -577,6 +582,7 @@ impl platform::Driver for Bcm2835I2cDriver {
             let adap_name =
                 CString::try_from_fmt(fmt!("bcm2835 ({})", CStr::from_char_ptr(full_name)))?;
             i2c_dev.adapter.set_name(&adap_name);
+            i2c_dev.adapter.set_algorithm::<Bcm2835I2cAlgo>();
         }
         // i2c_dev.adapter = adap;
 

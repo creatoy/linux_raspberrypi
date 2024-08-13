@@ -155,8 +155,8 @@ impl I2cAdapter {
         self.0.class = class
     }
 
-    pub unsafe fn set_algorithm(&mut self, algorithm: *const bindings::i2c_algorithm) {
-        self.0.algo = algorithm
+    pub unsafe fn set_algorithm<T: I2cAlgorithm>(&mut self) {
+        self.0.algo = Adapter::<T>::build()
     }
 
     pub unsafe fn setup_device(&mut self, device: &Device) {
@@ -226,7 +226,7 @@ pub trait I2cAlgorithm {
         adap: &I2cAdapter,
         addr: u16,
         flags: u16,
-        read_write: u8,
+        read_write: i8,
         command: u8,
         size: i32,
         data: &I2cSmbusData,
@@ -238,7 +238,7 @@ pub trait I2cAlgorithm {
         adap: &I2cAdapter,
         addr: u16,
         flags: u16,
-        read_write: u8,
+        read_write: i8,
         command: u8,
         size: i32,
         data: &I2cSmbusData,
