@@ -484,7 +484,7 @@ fn bcm2835_i2c_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<()
 }
 
 #[inline]
-fn bcm2835_i2c_func(adap: I2cAdapter) -> u32 {
+fn bcm2835_i2c_func(adap: &I2cAdapter) -> u32 {
     i2c::I2C_FUNC_I2C | i2c::I2C_FUNC_10BIT_ADDR | i2c::I2C_FUNC_PROTOCOL_MANGLING
 }
 
