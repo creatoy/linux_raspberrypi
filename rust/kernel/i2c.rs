@@ -4,6 +4,7 @@ use crate::{
     prelude::ENOTSUPP,
     str::CStr,
     types::{ForeignOwnable, Opaque},
+    ThisModule,
 };
 use alloc::vec::Vec;
 use core::{ffi::c_void, marker::PhantomData};
@@ -148,28 +149,33 @@ impl I2cAdapter {
         self.0.name[len] = 0;
     }
 
-    pub unsafe fn set_owner(&mut self, owner: *mut bindings::module) {
-        self.0.owner = owner
+    pub unsafe fn set_owner(mut self, owner: &'static ThisModule) -> Self {
+        self.0.owner = owner.as_ptr();
+        self
     }
 
-    pub fn set_class(&mut self, class: u32) {
-        self.0.class = class
+    pub fn set_class(mut self, class: u32) -> Self {
+        self.0.class = class;
+        self
     }
 
-    pub unsafe fn set_algorithm<T: I2cAlgorithm>(&mut self) {
-        self.0.algo = Adapter::<T>::build()
+    pub unsafe fn set_algorithm<T: I2cAlgorithm>(mut self) -> Self {
+        self.0.algo = Adapter::<T>::build();
+        self
     }
 
-    pub unsafe fn setup_device(&mut self, device: &Device) {
+    pub unsafe fn setup_device(mut self, device: &Device) -> Self {
         let dev_ptr = device.raw_device();
         self.0.dev.parent = dev_ptr;
         unsafe {
             self.0.dev.of_node = (*dev_ptr).of_node;
         }
+        self
     }
 
-    pub unsafe fn set_quirks(&mut self, quirks: &I2cAdapterQuirks) {
+    pub unsafe fn set_quirks(mut self, quirks: &I2cAdapterQuirks) -> Self {
         self.0.quirks = &quirks.0 as *const _;
+        self
     }
 
     pub fn timeout(&self) -> usize {

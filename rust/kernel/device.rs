@@ -257,23 +257,6 @@ impl Device {
         // return ptr must be null.
         Ok(ptr as *mut T)
     }
-
-    // Find and read an array of 32 bit from a property.
-    pub fn of_property_read_u32(&self, propname: &'static CStr, out_values: &mut u32) -> Result {
-        // SAFETY: The safety requirements are satisfied by the existence of `RawDevice` and its
-        // safety requirements.
-        let ret = unsafe {
-            let np = (*self.raw_device()).of_node;
-            bindings::of_property_read_variable_u32_array(
-                np,
-                propname.as_char_ptr(),
-                out_values as *mut u32,
-                1,
-                0,
-            )
-        };
-        to_result(ret)
-    }
 }
 
 // SAFETY: The device returned by `raw_device` is the one for which we hold a reference.
