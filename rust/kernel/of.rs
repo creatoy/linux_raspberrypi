@@ -120,6 +120,13 @@ impl DeviceNode {
         self.0._flags
     }
 
+    pub fn full_name<'a>(&self) -> &'a CStr {
+        unsafe {
+            let name_ptr = bindings::of_node_full_name(self.as_ptr());
+            CStr::from_char_ptr(name_ptr)
+        }
+    }
+
     // Note: Try to implement in a award way. Wait for imporvement.
     fn read_u32_array(&self, propname: &'static CStr, out_value: &mut u32, sz: usize) -> Result {
         let ret = unsafe {

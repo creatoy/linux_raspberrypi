@@ -7,7 +7,7 @@ use crate::{
     ThisModule,
 };
 use alloc::vec::Vec;
-use core::{ffi::c_void, marker::PhantomData};
+use core::{ffi::c_void, marker::PhantomData, mem};
 use core::{mem::MaybeUninit, slice};
 use macros::vtable;
 
@@ -47,12 +47,59 @@ pub const I2C_FUNC_SMBUS_BLOCK_DATA: u32 = bindings::I2C_FUNC_SMBUS_BLOCK_DATA;
 pub const I2C_FUNC_SMBUS_I2C_BLOCK: u32 = bindings::I2C_FUNC_SMBUS_I2C_BLOCK;
 pub const I2C_FUNC_SMBUS_EMUL: u32 = bindings::I2C_FUNC_SMBUS_EMUL;
 pub const I2C_FUNC_SMBUS_EMUL_ALL: u32 = bindings::I2C_FUNC_SMBUS_EMUL_ALL;
-
+pub const I2C_SMBUS_BLOCK_MAX: u32 = 32;
+pub const I2C_SMBUS_READ: u32 = 1;
+pub const I2C_SMBUS_WRITE: u32 = 0;
+pub const I2C_SMBUS_QUICK: u32 = 0;
+pub const I2C_SMBUS_BYTE: u32 = 1;
+pub const I2C_SMBUS_BYTE_DATA: u32 = 2;
+pub const I2C_SMBUS_WORD_DATA: u32 = 3;
+pub const I2C_SMBUS_PROC_CALL: u32 = 4;
+pub const I2C_SMBUS_BLOCK_DATA: u32 = 5;
+pub const I2C_SMBUS_I2C_BLOCK_BROKEN: u32 = 6;
+pub const I2C_SMBUS_BLOCK_PROC_CALL: u32 = 7;
+pub const I2C_SMBUS_I2C_BLOCK_DATA: u32 = 8;
+pub const I2C_MAX_STANDARD_MODE_FREQ: u32 = 100000;
+pub const I2C_MAX_FAST_MODE_FREQ: u32 = 400000;
+pub const I2C_MAX_FAST_MODE_PLUS_FREQ: u32 = 1000000;
+pub const I2C_MAX_TURBO_MODE_FREQ: u32 = 1400000;
+pub const I2C_MAX_HIGH_SPEED_MODE_FREQ: u32 = 3400000;
+pub const I2C_MAX_ULTRA_FAST_MODE_FREQ: u32 = 5000000;
+pub const I2C_DEVICE_ID_NXP_SEMICONDUCTORS: u32 = 0;
+pub const I2C_DEVICE_ID_NXP_SEMICONDUCTORS_1: u32 = 1;
+pub const I2C_DEVICE_ID_NXP_SEMICONDUCTORS_2: u32 = 2;
+pub const I2C_DEVICE_ID_NXP_SEMICONDUCTORS_3: u32 = 3;
+pub const I2C_DEVICE_ID_RAMTRON_INTERNATIONAL: u32 = 4;
+pub const I2C_DEVICE_ID_ANALOG_DEVICES: u32 = 5;
+pub const I2C_DEVICE_ID_STMICROELECTRONICS: u32 = 6;
+pub const I2C_DEVICE_ID_ON_SEMICONDUCTOR: u32 = 7;
+pub const I2C_DEVICE_ID_SPRINTEK_CORPORATION: u32 = 8;
+pub const I2C_DEVICE_ID_ESPROS_PHOTONICS_AG: u32 = 9;
+pub const I2C_DEVICE_ID_FUJITSU_SEMICONDUCTOR: u32 = 10;
+pub const I2C_DEVICE_ID_FLIR: u32 = 11;
+pub const I2C_DEVICE_ID_O2MICRO: u32 = 12;
+pub const I2C_DEVICE_ID_ATMEL: u32 = 13;
+pub const I2C_DEVICE_ID_NONE: u32 = 65535;
+pub const I2C_CLIENT_PEC: u32 = 4;
+pub const I2C_CLIENT_TEN: u32 = 16;
+pub const I2C_CLIENT_SLAVE: u32 = 32;
+pub const I2C_CLIENT_HOST_NOTIFY: u32 = 64;
+pub const I2C_CLIENT_WAKE: u32 = 128;
+pub const I2C_CLIENT_SCCB: u32 = 36864;
+pub const I2C_ALF_IS_SUSPENDED: u32 = 0;
+pub const I2C_ALF_SUSPEND_REPORTED: u32 = 1;
+pub const I2C_CLASS_HWMON: u32 = 1;
+pub const I2C_CLASS_DDC: u32 = 8;
+pub const I2C_CLASS_SPD: u32 = 128;
+pub const I2C_CLASS_DEPRECATED: u32 = 256;
+pub const I2C_CLIENT_END: u32 = 65534;
 // No BIT macros.
 pub const I2C_AQ_NO_CLK_STRETCH: u32 = 1 << 4;
 
 /// Represents i2c_adapter_quirks
 ///
+#[derive(Clone)]
+#[repr(transparent)]
 pub struct I2cAdapterQuirks(bindings::i2c_adapter_quirks);
 
 impl I2cAdapterQuirks {
@@ -117,12 +164,19 @@ impl I2cMsg {
 ///
 pub struct I2cAdapter(bindings::i2c_adapter);
 impl I2cAdapter {
-    // Create I2CMsg from raw pointer
+    /// Create a new instance of the I2cAdapter
+    pub const fn new() -> Self {
+        let up = unsafe { MaybeUninit::<bindings::i2c_adapter>::zeroed().assume_init() };
+        Self(up)
+    }
+
+    /// Create I2CMsg from raw pointer
     pub fn from_raw<'a>(ptr: *mut bindings::i2c_adapter) -> &'a Self {
         let ptr = ptr.cast::<Self>();
         unsafe { &*ptr }
     }
 
+    #[inline]
     pub fn as_ptr(&self) -> *mut bindings::i2c_adapter {
         &self.0 as *const _ as *mut _
     }
@@ -135,54 +189,42 @@ impl I2cAdapter {
         unsafe { bindings::dev_set_drvdata(&self.0.dev as *const _ as *mut _, data as *mut c_void) }
     }
 
-    pub fn i2c_add_adapter(&self) -> Result {
+    pub fn i2c_add_adapter(&mut self) -> Result {
         let ret = unsafe { bindings::i2c_add_adapter(self.as_ptr()) };
         to_result(ret)
-    }
-
-    pub fn set_name(&mut self, name: &CStr) {
-        let len = name.len().min(self.0.name.len() - 1);
-        let s = name.as_bytes();
-        for b in &s[0..len] {
-            self.0.name[0] = *b as i8;
-        }
-        self.0.name[len] = 0;
-    }
-
-    pub unsafe fn set_owner(mut self, owner: &'static ThisModule) -> Self {
-        self.0.owner = owner.as_ptr();
-        self
-    }
-
-    pub fn set_class(mut self, class: u32) -> Self {
-        self.0.class = class;
-        self
-    }
-
-    pub unsafe fn set_algorithm<T: I2cAlgorithm>(mut self) -> Self {
-        self.0.algo = Adapter::<T>::build();
-        self
-    }
-
-    pub unsafe fn setup_device(mut self, device: &Device) -> Self {
-        let dev_ptr = device.raw_device();
-        self.0.dev.parent = dev_ptr;
-        unsafe {
-            self.0.dev.of_node = (*dev_ptr).of_node;
-        }
-        self
-    }
-
-    pub unsafe fn set_quirks(mut self, quirks: &I2cAdapterQuirks) -> Self {
-        self.0.quirks = &quirks.0 as *const _;
-        self
     }
 
     pub fn timeout(&self) -> usize {
         unsafe { self.0.timeout as usize }
     }
 
-    //pub fn set_up(self)
+    pub fn set_up<T: I2cAlgorithm>(
+        mut self,
+        name: &CStr,
+        owner: &'static ThisModule,
+        class: u32,
+        device: &Device,
+        quirks: I2cAdapterQuirks,
+    ) -> Self {
+        unsafe {
+            // set_name
+            bindings::snprintf(
+                self.0.name.as_mut_ptr(),
+                mem::size_of_val(&self.0.name) as u64,
+                name.as_char_ptr(),
+            );
+            self.0.owner = owner.as_ptr();
+            self.0.class = class;
+            self.0.algo = Adapter::<T>::build();
+
+            let dev_ptr = device.raw_device();
+            self.0.dev.parent = dev_ptr;
+            self.0.dev.of_node = (*dev_ptr).of_node;
+
+            self.0.quirks = &quirks.0 as *const _;
+        };
+        self
+    }
 }
 
 impl Drop for I2cAdapter {

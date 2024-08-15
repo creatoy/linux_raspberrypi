@@ -3,6 +3,7 @@
 //! Generic devices that are part of the kernel's driver model.
 //!
 //! C header: [`include/linux/device.h`](../../../../include/linux/device.h)
+use alloc::boxed::Box;
 
 use crate::{
     bindings,
@@ -222,11 +223,11 @@ impl Device {
     }
 
     /// Allocate a new clock, register it and return an opaque cookie
-    pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<&mut Clk> {
+    pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<Clk> {
         // SAFETY: call ffi and ptr is valid
         let raw =
             unsafe { from_err_ptr(bindings::devm_clk_register(self.ptr, clk_hw.as_mut_ptr()))? };
-        Ok(Clk::from_raw(raw))
+        Ok(unsafe { *Box::from_raw(Clk::from_raw(raw) as *mut Clk) })
     }
 
     /// Allocate(kmalloc) and return the corresponding mutable pointer.

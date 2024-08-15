@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 //! BCM2835 master mode driver
-use core::ops::Deref;
+use core::{mem::MaybeUninit, ops::Deref};
 
 use kernel::{
     bindings, c_str,
@@ -110,6 +110,12 @@ struct Bcm2835I2cDev {
 }
 
 impl Bcm2835I2cDev {
+    pub(crate) fn new() -> Self {
+        let up = unsafe { MaybeUninit::<Bcm2835I2cDev>::uninit().assume_init() };
+
+        up
+    }
+
     unsafe fn from_ptr<'a>(ptr: *mut Self) -> &'a mut Self {
         unsafe { &mut *ptr.cast() }
     }
@@ -239,7 +245,7 @@ impl Bcm2835I2cDev {
         unsafe { bindings::readl(addr as _) }
     }
 
-    pub(crate) fn bcm2835_i2c_register_div(&mut self, mclk: &Clk) -> Result<&mut Clk> {
+    pub(crate) fn bcm2835_i2c_register_div(&mut self, mclk: &Clk) -> Result<Clk> {
         let name = CString::try_from_fmt(fmt!("{}_div", self.dev.name()))?;
         let mclk_name = mclk.name();
         let parent_names = [mclk_name.as_char_ptr()];
@@ -257,10 +263,6 @@ impl Bcm2835I2cDev {
 
             clk_i2c
         };
-
-        // Ensure these objects live long enough
-        // TODO: Try to achieve this in a more elegant way
-        // let _ = (name, parent_names, init_data);
 
         self.dev.clk_register(&mut clk_i2c.hw)
     }
@@ -544,10 +546,8 @@ impl platform::Driver for Bcm2835I2cDriver {
             pdev.name()
         );
 
-        let dev = unsafe { Device::from_dev(pdev) };
-        let i2c_dev_ptr: *mut Bcm2835I2cDev = dev.kzalloc::<Bcm2835I2cDev>()?;
-
-        let i2c_dev = unsafe { Bcm2835I2cDev::from_ptr(i2c_dev_ptr) };
+        let dev = Device::from_dev(pdev);
+        let mut i2c_dev = Bcm2835I2cDev::new();
         i2c_dev.dev = dev.clone();
         i2c_dev.completion = Arc::pin_init(new_completion!())?;
 
@@ -556,8 +556,7 @@ impl platform::Driver for Bcm2835I2cDriver {
         dev_info!(pdev, "I2c bus device reg_base: {:?}\n", reg_base);
 
         let mclk = dev.clk_get()?;
-
-        let bus_clk = i2c_dev.bcm2835_i2c_register_div(mclk)?;
+        i2c_dev.bus_clk = i2c_dev.bcm2835_i2c_register_div(mclk)?;
 
         let mut bus_clk_rate = 0;
         if let Err(_) = dev
@@ -565,44 +564,21 @@ impl platform::Driver for Bcm2835I2cDriver {
             .read_u32(c_str!("clock-frequency"), &mut bus_clk_rate)
         {
             dev_warn!(pdev, "Could not read clock-frequency property\n");
-            bus_clk_rate = bindings::I2C_MAX_STANDARD_MODE_FREQ;
+            bus_clk_rate = i2c::I2C_MAX_STANDARD_MODE_FREQ;
         };
         dev_info!(pdev, "I2c bus device clock-frequency: {}\n", bus_clk_rate);
 
-        if let Err(_) = i2c_dev.bus_clk.set_rate_exclusive(bus_clk_rate as u64) {
+        if let Err(e) = i2c_dev.bus_clk.set_rate_exclusive(bus_clk_rate as u64) {
             dev_err!(pdev, "Could not set clock frequency\n");
+            return Err(e);
         }
 
-        /*
-        let ret =
-            unsafe { bindings::clk_set_rate_exclusive(bus_clk.as_ptr(), bus_clk_rate as u64) };
-        if ret < 0 {
-            dev_err!(
-                pdev,
-                "Could not set clock frequency: {:?}\n",
-                to_result(ret)
-            );
-            to_result(ret)?;
-        }*/
-
-        i2c_dev.bus_clk.prepare_enable()?;
+        if let Err(e) = i2c_dev.bus_clk.prepare_enable() {
+            dev_err!(pdev, "Could not prepare clock\n");
+            return Err(e);
+        }
 
         let irq = pdev.irq_resource(0)?;
-
-        /*let ret = unsafe {
-            bindings::request_threaded_irq(
-                irq as u32,
-                Some(bcm2835_i2c_isr_cb),
-                None,
-                bindings::IRQF_SHARED as u64,
-                c_str!("i2c_bcm2835_rust").as_char_ptr(),
-                i2c_dev_ptr as *mut core::ffi::c_void,
-            )
-        };
-        if ret < 0 {
-            dev_err!(pdev, "Could not request IRQ: {}\n", irq);
-            to_result(ret)?;
-        }*/
 
         if let Err(_) = request_irq(
             irq as u32,
@@ -616,14 +592,17 @@ impl platform::Driver for Bcm2835I2cDriver {
         i2c_dev.irq = irq;
 
         let quirks = I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
+        let name = CString::try_from_fmt(fmt!("bcm2835 ({})", dev.of_node().full_name()))?;
+        let adap = i2c::I2cAdapter::new().set_up::<Bcm2835I2cAlgo>(
+            &name,
+            &THIS_MODULE,
+            i2c::I2C_CLASS_DEPRECATED,
+            &dev,
+            quirks,
+        );
+        i2c_dev.adapter = adap;
         unsafe {
             i2c_dev.adapter.i2c_set_adapdata(i2c_dev.as_ptr());
-            i2c_dev.adapter.set_class(bindings::I2C_CLASS_DEPRECATED);
-            let full_name = bindings::of_node_full_name((*pdev.raw_device()).of_node);
-            let adap_name =
-                CString::try_from_fmt(fmt!("bcm2835 ({})", CStr::from_char_ptr(full_name)))?;
-            i2c_dev.adapter.set_name(&adap_name);
-            i2c_dev.adapter.set_algorithm::<Bcm2835I2cAlgo>();
         }
 
         /*
@@ -634,58 +613,13 @@ impl platform::Driver for Bcm2835I2cDriver {
         i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_CLKT, 0);
         i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, 0);
 
-        let ret = unsafe { bindings::i2c_add_adapter(i2c_dev.adapter.as_ptr()) };
-        if ret < 0 {
-            dev_info!(pdev, "Could not add I2C adapter: {:?}\n", to_result(ret));
-            unsafe {
-                bindings::free_irq(irq as u32, i2c_dev_ptr as *mut core::ffi::c_void);
-            }
-        }
-        let _ = to_result(ret)?;
+        if let Err(e) = i2c_dev.adapter.i2c_add_adapter() {
+            dev_err!(pdev, "Could not add I2C adapter\n");
+            return Err(e);
+        };
 
-        // TODO: setup i2c_adapter
-        let quirks = I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
-        // let mut adap = i2c_dev.adapter;
-        unsafe {
-            i2c_dev.adapter.i2c_set_adapdata(i2c_dev.as_ptr());
-            i2c_dev.adapter.set_owner(&THIS_MODULE);
-            i2c_dev.adapter.set_class(bindings::I2C_CLASS_DEPRECATED);
-            let full_name = bindings::of_node_full_name((*pdev.raw_device()).of_node);
-            let adap_name =
-                CString::try_from_fmt(fmt!("bcm2835 ({})", CStr::from_char_ptr(full_name)))?;
-            i2c_dev.adapter.set_name(&adap_name);
-        }
-        // i2c_dev.adapter = adap;
+        let dev_data = kernel::new_device_data!((), (), i2c_dev, "BCM2835_I2C device data")?;
 
-        /*
-         * Disable the hardware clock stretching timeout. SMBUS
-         * specifies a limit for how long the device can stretch the
-         * clock, but core I2C doesn't.
-         */
-        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_CLKT, 0);
-        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, 0);
-
-        dbg!("Try to add I2C adapter...");
-        i2c_dev.adapter.i2c_add_adapter()?;
-        dbg!("I2C adapter added!");
-        /*let ret = unsafe { bindings::i2c_add_adapter(i2c_dev.adapter.as_ptr()) };
-        if ret < 0 {
-            dev_info!(pdev, "Could not add I2C adapter: {:?}\n", to_result(ret));
-            unsafe {
-                bindings::free_irq(irq as u32, i2c_dev_ptr as *mut core::ffi::c_void);
-            }
-        }
-        let _ = to_result(ret)?;*/
-
-        let item = unsafe { Box::from_raw(i2c_dev_ptr) };
-        let dev_data = kernel::new_device_data!((), (), *item, "BCM2835_I2C device data")?;
-        /*
-         * Disable the hardware clock stretching timeout. SMBUS
-         * specifies a limit for how long the device can stretch the
-         * clock, but core I2C doesn't.
-         */
-        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_CLKT, 0);
-        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, 0);
         Ok(dev_data.into())
     }
 
