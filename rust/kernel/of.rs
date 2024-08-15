@@ -4,7 +4,12 @@
 //!
 //! C header: [`include/linux/of_*.h`](../../../../include/linux/of_*.h)
 
-use crate::{bindings, driver::RawDeviceId, str::BStr};
+use crate::{
+    bindings,
+    driver::RawDeviceId,
+    error::{to_result, Result},
+    str::{BStr, CStr},
+};
 
 /// An open firmware device id.
 #[derive(Clone, Copy)]
@@ -113,5 +118,30 @@ impl DeviceNode {
 
     pub fn flags(&self) -> u64 {
         self.0._flags
+    }
+
+    pub fn full_name<'a>(&self) -> &'a CStr {
+        unsafe {
+            let name_ptr = bindings::of_node_full_name(self.as_ptr());
+            CStr::from_char_ptr(name_ptr)
+        }
+    }
+
+    // Note: Try to implement in a award way. Wait for imporvement.
+    fn read_u32_array(&self, propname: &'static CStr, out_value: &mut u32, sz: usize) -> Result {
+        let ret = unsafe {
+            bindings::of_property_read_variable_u32_array(
+                self.as_ptr(),
+                propname.as_char_ptr(),
+                out_value,
+                sz,
+                0,
+            )
+        };
+        to_result(ret)
+    }
+
+    pub fn read_u32(&self, propname: &'static CStr, out_value: &mut u32) -> Result {
+        self.read_u32_array(propname, out_value, 1)
     }
 }

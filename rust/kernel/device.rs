@@ -3,6 +3,7 @@
 //! Generic devices that are part of the kernel's driver model.
 //!
 //! C header: [`include/linux/device.h`](../../../../include/linux/device.h)
+use alloc::boxed::Box;
 
 use crate::{
     bindings,
@@ -222,11 +223,11 @@ impl Device {
     }
 
     /// Allocate a new clock, register it and return an opaque cookie
-    pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<&mut Clk> {
+    pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<Clk> {
         // SAFETY: call ffi and ptr is valid
         let raw =
             unsafe { from_err_ptr(bindings::devm_clk_register(self.ptr, clk_hw.as_mut_ptr()))? };
-        Ok(Clk::from_raw(raw))
+        Ok(unsafe { *Box::from_raw(Clk::from_raw(raw) as *mut Clk) })
     }
 
     /// Allocate(kmalloc) and return the corresponding mutable pointer.
@@ -256,23 +257,6 @@ impl Device {
         let ptr = unsafe { bindings::of_device_get_match_data(self.ptr) };
         // return ptr must be null.
         Ok(ptr as *mut T)
-    }
-
-    // Find and read an array of 32 bit from a property.
-    pub fn of_property_read_u32(&self, propname: &'static CStr, out_values: &mut u32) -> Result {
-        // SAFETY: The safety requirements are satisfied by the existence of `RawDevice` and its
-        // safety requirements.
-        let ret = unsafe {
-            let np = (*self.raw_device()).of_node;
-            bindings::of_property_read_variable_u32_array(
-                np,
-                propname.as_char_ptr(),
-                out_values as *mut u32,
-                1,
-                0,
-            )
-        };
-        to_result(ret)
     }
 }
 
