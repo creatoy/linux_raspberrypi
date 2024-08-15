@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 //! BCM2835 master mode driver
-use core::{mem::MaybeUninit, ops::Deref};
+use core::{clone::Clone, mem::MaybeUninit, ops::Deref};
 
 use kernel::{
     bindings, c_str,
@@ -97,9 +97,9 @@ struct Bcm2835I2cDev {
     reg_base: *mut u8,
     irq: i32,
     adapter: I2cAdapter,
-    completion: Arc<Completion>,
+    completion: Completion,
     curr_msg: Option<Vec<I2cMsg>>,
-    bus_clk: Clk,
+    bus_clk: Box<Clk>,
     num_msgs: i32,
     msg_err: u32,
     msg_buf: Option<Vec<u8>>,
@@ -245,7 +245,7 @@ impl Bcm2835I2cDev {
         unsafe { bindings::readl(addr as _) }
     }
 
-    pub(crate) fn bcm2835_i2c_register_div(&mut self, mclk: &Clk) -> Result<Clk> {
+    pub(crate) fn bcm2835_i2c_register_div(&mut self, mclk: &Clk) -> Result<Box<Clk>> {
         let name = CString::try_from_fmt(fmt!("{}_div", self.dev.name()))?;
         let mclk_name = mclk.name();
         let parent_names = [mclk_name.as_char_ptr()];
@@ -549,7 +549,7 @@ impl platform::Driver for Bcm2835I2cDriver {
         let dev = Device::from_dev(pdev);
         let mut i2c_dev = Bcm2835I2cDev::new();
         i2c_dev.dev = dev.clone();
-        i2c_dev.completion = Arc::pin_init(new_completion!())?;
+        i2c_dev.completion.init_completion();
 
         let reg_base = pdev.ioremap_resource(0)?;
         i2c_dev.reg_base = reg_base;

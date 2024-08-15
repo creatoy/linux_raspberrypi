@@ -170,9 +170,9 @@ void rust_helper_lockdep_unregister_key(struct lock_class_key *key)
 EXPORT_SYMBOL_GPL(rust_helper_lockdep_unregister_key);
 
 int rust_helper_fs_parse(struct fs_context *fc,
-		const struct fs_parameter_spec *desc,
-		struct fs_parameter *param,
-		struct fs_parse_result *result)
+			 const struct fs_parameter_spec *desc,
+			 struct fs_parameter *param,
+			 struct fs_parse_result *result)
 {
 	return fs_parse(fc, desc, param, result);
 }
@@ -184,7 +184,8 @@ const struct cred *rust_helper_get_cred(const struct cred *cred)
 }
 EXPORT_SYMBOL_GPL(rust_helper_get_cred);
 
-void rust_helper_put_cred(const struct cred *cred) {
+void rust_helper_put_cred(const struct cred *cred)
+{
 	put_cred(cred);
 }
 EXPORT_SYMBOL_GPL(rust_helper_put_cred);
@@ -219,19 +220,21 @@ struct page *rust_helper_alloc_pages(gfp_t gfp_mask, unsigned int order)
 EXPORT_SYMBOL_GPL(rust_helper_alloc_pages);
 
 void *rust_helper_alloc_inode_sb(struct super_block *sb,
-		struct kmem_cache *cache, gfp_t gfp)
+				 struct kmem_cache *cache, gfp_t gfp)
 {
 	return alloc_inode_sb(sb, cache, gfp);
 }
 EXPORT_SYMBOL_GPL(rust_helper_alloc_inode_sb);
 
-unsigned long rust_helper_copy_from_user(void *to, const void __user *from, unsigned long n)
+unsigned long rust_helper_copy_from_user(void *to, const void __user *from,
+					 unsigned long n)
 {
 	return copy_from_user(to, from, n);
 }
 EXPORT_SYMBOL_GPL(rust_helper_copy_from_user);
 
-unsigned long rust_helper_copy_to_user(void __user *to, const void *from, unsigned long n)
+unsigned long rust_helper_copy_to_user(void __user *to, const void *from,
+				       unsigned long n)
 {
 	return copy_to_user(to, from, n);
 }
@@ -255,8 +258,9 @@ const char *rust_helper_dev_name(const struct device *dev)
 }
 EXPORT_SYMBOL_GPL(rust_helper_dev_name);
 
-const struct of_device_id *rust_helper_of_match_device(
-		const struct of_device_id *matches, const struct device *dev)
+const struct of_device_id *
+rust_helper_of_match_device(const struct of_device_id *matches,
+			    const struct device *dev)
 {
 	return of_match_device(matches, dev);
 }
@@ -264,7 +268,7 @@ EXPORT_SYMBOL_GPL(rust_helper_of_match_device);
 
 const char *rust_helper_of_node_full_name(const struct device_node *np)
 {
-	return rust_helper_of_node_full_name(np);
+	return of_node_full_name(np);
 }
 EXPORT_SYMBOL_GPL(rust_helper_of_node_full_name);
 
@@ -402,7 +406,8 @@ void rust_helper_writeq_relaxed(u64 value, volatile void __iomem *addr)
 EXPORT_SYMBOL_GPL(rust_helper_writeq_relaxed);
 #endif
 
-void rust_helper_memcpy_fromio(void *to, const volatile void __iomem *from, long count)
+void rust_helper_memcpy_fromio(void *to, const volatile void __iomem *from,
+			       long count)
 {
 	memcpy_fromio(to, from, count);
 }
@@ -430,8 +435,6 @@ EXPORT_SYMBOL_GPL(rust_helper_clk_disable_unprepare);
  * your platform such that `size_t` matches `uintptr_t` (i.e., to increase
  * `size_t`, because `uintptr_t` has to be at least as big as `size_t`).
  */
-static_assert(
-	sizeof(size_t) == sizeof(uintptr_t) &&
-	__alignof__(size_t) == __alignof__(uintptr_t),
-	"Rust code expects C `size_t` to match Rust `usize`"
-);
+static_assert(sizeof(size_t) == sizeof(uintptr_t) &&
+		      __alignof__(size_t) == __alignof__(uintptr_t),
+	      "Rust code expects C `size_t` to match Rust `usize`");

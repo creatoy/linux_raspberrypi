@@ -222,12 +222,12 @@ impl Device {
         DeviceNode::from_raw(ptr)
     }
 
-    /// Allocate a new clock, register it and return an opaque cookie
-    pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<Clk> {
+    /// Allocate a new clk which cannot be dereferenced by driver code.
+    pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<Box<Clk>> {
         // SAFETY: call ffi and ptr is valid
         let raw =
             unsafe { from_err_ptr(bindings::devm_clk_register(self.ptr, clk_hw.as_mut_ptr()))? };
-        Ok(unsafe { *Box::from_raw(Clk::from_raw(raw) as *mut Clk) })
+        Ok(unsafe { Box::from_raw(Clk::from_raw(raw) as *mut Clk) })
     }
 
     /// Allocate(kmalloc) and return the corresponding mutable pointer.
