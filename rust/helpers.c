@@ -264,7 +264,7 @@ EXPORT_SYMBOL_GPL(rust_helper_of_match_device);
 
 const char *rust_helper_of_node_full_name(const struct device_node *np)
 {
-	return rust_helper_of_node_full_name(np);
+	return of_node_full_name(np);
 }
 EXPORT_SYMBOL_GPL(rust_helper_of_node_full_name);
 

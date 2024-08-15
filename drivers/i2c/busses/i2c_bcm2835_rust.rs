@@ -94,7 +94,7 @@ struct Bcm2835I2cDev {
     reg_base: *mut u8,
     irq: i32,
     adapter: I2cAdapter,
-    completion: Arc<Completion>,
+    completion: Completion,
     curr_msg: Option<Vec<I2cMsg>>,
     bus_clk: Clk,
     num_msgs: i32,
@@ -105,6 +105,9 @@ struct Bcm2835I2cDev {
     debug_num: u32,
     debug_num_msgs: u32,
 }
+
+unsafe impl Sync for Bcm2835I2cDev {}
+unsafe impl Send for Bcm2835I2cDev {}
 
 impl Bcm2835I2cDev {
     unsafe fn from_ptr<'a>(ptr: *mut Self) -> &'a mut Self {
@@ -508,7 +511,10 @@ impl I2cAlgorithm for Bcm2835I2cAlgo {
     }
 }
 
-struct Bcm2835I2cData {}
+struct Bcm2835I2cData {
+    pub(crate) dev: Device,
+    pub(crate) i2c_dev_ptr: *mut Bcm2835I2cDev,
+}
 
 unsafe impl Sync for Bcm2835I2cData {}
 unsafe impl Send for Bcm2835I2cData {}
@@ -562,11 +568,14 @@ impl platform::Driver for Bcm2835I2cDriver {
         );
 
         let dev = unsafe { Device::from_dev(pdev) };
+        dev_info!(pdev, "dev: {:?}\n", dev.raw_device());
         let i2c_dev_ptr: *mut Bcm2835I2cDev = dev.kzalloc::<Bcm2835I2cDev>()?;
+        dev_info!(pdev, "i2c_dev_ptr: {:?}\n", i2c_dev_ptr);
 
         let i2c_dev = unsafe { Bcm2835I2cDev::from_ptr(i2c_dev_ptr) };
         i2c_dev.dev = dev.clone();
-        i2c_dev.completion = Arc::pin_init(new_completion!())?;
+        // i2c_dev.completion = Arc::pin_init(new_completion!())?;
+        i2c_dev.completion.init_completion();
 
         let reg_base = pdev.ioremap_resource(0)?;
         i2c_dev.reg_base = reg_base;
@@ -593,7 +602,8 @@ impl platform::Driver for Bcm2835I2cDriver {
             to_result(ret)?;
         }
 
-        i2c_dev.bus_clk.prepare_enable()?;
+        bus_clk.prepare_enable()?;
+        // i2c_dev.bus_clk.prepare_enable()?;
 
         let irq = pdev.irq_resource(0)?;
 
@@ -603,7 +613,7 @@ impl platform::Driver for Bcm2835I2cDriver {
                 Some(bcm2835_i2c_isr_cb),
                 None,
                 bindings::IRQF_SHARED as u64,
-                c_str!("i2c_bcm2835_rust").as_char_ptr(),
+                dev.name().as_char_ptr(),
                 i2c_dev_ptr as *mut core::ffi::c_void,
             )
         };
@@ -612,10 +622,10 @@ impl platform::Driver for Bcm2835I2cDriver {
             to_result(ret)?;
         }
         i2c_dev.irq = irq;
+        dev_info!(pdev, "I2c bus device IRQ: {}\n", irq);
 
         // TODO: setup i2c_adapter
         let quirks = I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
-        // let mut adap = i2c_dev.adapter;
         unsafe {
             i2c_dev.adapter.i2c_set_adapdata(i2c_dev.as_ptr());
             // TODO: set owner
@@ -627,7 +637,6 @@ impl platform::Driver for Bcm2835I2cDriver {
             i2c_dev.adapter.set_name(&adap_name);
             i2c_dev.adapter.set_algorithm::<Bcm2835I2cAlgo>();
         }
-        // i2c_dev.adapter = adap;
 
         /*
          * Disable the hardware clock stretching timeout. SMBUS
@@ -646,21 +655,26 @@ impl platform::Driver for Bcm2835I2cDriver {
         }
         let _ = to_result(ret)?;
 
-        let dev_data =
-            kernel::new_device_data!((), (), Bcm2835I2cData {}, "BCM2835_I2C device data")?;
-        /*
-         * Disable the hardware clock stretching timeout. SMBUS
-         * specifies a limit for how long the device can stretch the
-         * clock, but core I2C doesn't.
-         */
-        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_CLKT, 0);
-        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, 0);
+        let dev_data = kernel::new_device_data!(
+            (),
+            (),
+            Bcm2835I2cData { dev, i2c_dev_ptr },
+            "BCM2835_I2C device data"
+        )?;
         Ok(dev_data.into())
     }
 
-    fn remove(_data: &Self::Data) -> Result {
+    fn remove(data: &Self::Data) -> Result {
         pr_info!("BCM2835 i2c bus device driver remove.\n");
         // TODO: remove i2c driver
+
+        unsafe {
+            bindings::devm_kfree(
+                data.dev.raw_device(),
+                data.i2c_dev_ptr as *const _ as *const core::ffi::c_void,
+            );
+        }
+
         Ok(())
     }
 }
