@@ -523,13 +523,16 @@ impl I2cAlgorithm for Bcm2835I2cAlgo {
 //static BCM2835_I2C_QUIRKS: I2cAdapterQuirks =
 //I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
 
-struct Bcm2835I2cData {}
+struct Bcm2835I2cData {
+    pub(crate) dev: Device,
+    pub(crate) i2c_dev_ptr: *mut Bcm2835I2cDev,
+}
 unsafe impl Sync for Bcm2835I2cDev {}
 unsafe impl Send for Bcm2835I2cDev {}
 unsafe impl Sync for Bcm2835I2cData {}
 unsafe impl Send for Bcm2835I2cData {}
 
-type DeviceData = device::Data<(), (), Bcm2835I2cDev>;
+type DeviceData = device::Data<(), (), Bcm2835I2cData>;
 
 impl platform::Driver for Bcm2835I2cDriver {
     kernel::driver_of_id_table!(BCM2835_I2C_ID_TABLE);
@@ -540,14 +543,11 @@ impl platform::Driver for Bcm2835I2cDriver {
         pdev: &mut platform::Device,
         id_info: core::prelude::v1::Option<&Self::IdInfo>,
     ) -> Result<Self::Data> {
-        dev_info!(
-            pdev,
-            "BCM2835 i2c bus device ({}) driver probe.\n",
-            pdev.name()
-        );
+        dev_info!(pdev, "BCM2835 i2c bus device driver probe.\n");
 
         let dev = Device::from_dev(pdev);
-        let mut i2c_dev = Bcm2835I2cDev::new();
+        let i2c_dev_ptr: *mut Bcm2835I2cDev = dev.kzalloc::<Bcm2835I2cDev>()?;
+        let i2c_dev = unsafe { Bcm2835I2cDev::from_ptr(i2c_dev_ptr) };
         i2c_dev.dev = dev.clone();
         i2c_dev.completion.init_completion();
 
@@ -618,7 +618,12 @@ impl platform::Driver for Bcm2835I2cDriver {
             return Err(e);
         };
 
-        let dev_data = kernel::new_device_data!((), (), i2c_dev, "BCM2835_I2C device data")?;
+        let dev_data = kernel::new_device_data!(
+            (),
+            (),
+            Bcm2835I2cData { dev, i2c_dev_ptr },
+            "BCM2835_I2C device data"
+        )?;
 
         Ok(dev_data.into())
     }

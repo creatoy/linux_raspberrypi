@@ -408,11 +408,13 @@ impl<T: I2cAlgorithm> Adapter<T> {
         } else {
             None
         },
+        #[cfg(CONFIG_I2C_SLAVE)]
         reg_slave: if T::HAS_REG_SLAVE {
             Some(Adapter::<T>::reg_slave_callback)
         } else {
             None
         },
+        #[cfg(CONFIG_I2C_SLAVE)]
         unreg_slave: if T::HAS_UNREG_SLAVE {
             Some(Adapter::<T>::unreg_slave_callback)
         } else {
