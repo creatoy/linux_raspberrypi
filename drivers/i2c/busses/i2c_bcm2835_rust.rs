@@ -110,12 +110,6 @@ struct Bcm2835I2cDev {
 }
 
 impl Bcm2835I2cDev {
-    pub(crate) fn new() -> Self {
-        let up = unsafe { MaybeUninit::<Bcm2835I2cDev>::uninit().assume_init() };
-
-        up
-    }
-
     unsafe fn from_ptr<'a>(ptr: *mut Self) -> &'a mut Self {
         unsafe { &mut *ptr.cast() }
     }
@@ -264,7 +258,8 @@ impl Bcm2835I2cDev {
             clk_i2c
         };
 
-        self.dev.clk_register(&mut clk_i2c.hw)
+        let raw = self.dev.clk_register(&mut clk_i2c.hw)? as *mut Clk;
+        unsafe { Ok(Box::from_raw(raw)) }
     }
 
     pub(crate) fn bcm2835_fill_txfifo(&mut self) {
@@ -527,8 +522,6 @@ struct Bcm2835I2cData {
     pub(crate) dev: Device,
     pub(crate) i2c_dev_ptr: *mut Bcm2835I2cDev,
 }
-unsafe impl Sync for Bcm2835I2cDev {}
-unsafe impl Send for Bcm2835I2cDev {}
 unsafe impl Sync for Bcm2835I2cData {}
 unsafe impl Send for Bcm2835I2cData {}
 

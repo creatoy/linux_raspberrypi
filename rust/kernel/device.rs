@@ -7,7 +7,7 @@ use alloc::boxed::Box;
 
 use crate::{
     bindings,
-    clk::Clk,
+    clk::{self, Clk},
     clk_provider::ClkHw,
     dev_err,
     error::{code::*, from_err_ptr, to_result, Result},
@@ -223,11 +223,11 @@ impl Device {
     }
 
     /// Allocate a new clk which cannot be dereferenced by driver code.
-    pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<Box<Clk>> {
+    pub fn clk_register(&self, clk_hw: &mut ClkHw) -> Result<&mut Clk> {
         // SAFETY: call ffi and ptr is valid
-        let raw =
+        let ptr =
             unsafe { from_err_ptr(bindings::devm_clk_register(self.ptr, clk_hw.as_mut_ptr()))? };
-        Ok(unsafe { Box::from_raw(Clk::from_raw(raw) as *mut Clk) })
+        Ok(Clk::from_raw(ptr))
     }
 
     /// Allocate(kmalloc) and return the corresponding mutable pointer.
