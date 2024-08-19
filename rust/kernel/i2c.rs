@@ -73,6 +73,7 @@ impl I2cAdapterQuirks {
 ///
 /// Note: buf is a raw pointer
 /// Note: all primitive fields are __u16 type in C, represented as u16 in Rust.
+#[derive(Clone)]
 pub struct I2cMsg(bindings::i2c_msg);
 
 impl I2cMsg {
@@ -104,8 +105,12 @@ impl I2cMsg {
             return None;
         }
         // Safety: buf is valid for len bytes, no contiguity.
-        let vec: Vec<u8> = unsafe { Vec::from_raw_parts(buf, len, len) };
-        Some(vec)
+        let mut v = Vec::try_with_capacity(len).expect("Vec::try_with_capacity failed");
+        for i in 0..len {
+            v.try_push(unsafe { *buf.add(i) });
+        }
+        // let vec: Vec<u8> = unsafe { Vec::from_raw_parts(buf, len, len) };
+        Some(v)
     }
 }
 
@@ -118,7 +123,7 @@ impl Default for I2cMsg {
 
 /// Represents i2c_adapter
 ///
-pub struct I2cAdapter(bindings::i2c_adapter);
+pub struct I2cAdapter(pub bindings::i2c_adapter);
 impl I2cAdapter {
     pub unsafe fn from_raw<'a>(ptr: *mut bindings::i2c_adapter) -> &'a mut Self {
         let ptr = ptr.cast::<Self>();
@@ -257,7 +262,7 @@ impl<T: I2cAlgorithm> Adapter<T> {
 
         let mut messages = Vec::try_with_capacity(num as usize).expect("Failed to allocate memory");
         for i in 0..num as usize {
-            messages[i] = unsafe { I2cMsg(*msgs.add(i)) };
+            messages.try_push(I2cMsg(unsafe { *msgs.add(i) }));
         }
 
         from_result(|| T::master_xfer(adapter, messages, num))

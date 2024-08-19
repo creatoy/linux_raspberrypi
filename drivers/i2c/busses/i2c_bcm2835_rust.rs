@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0
 
 //! BCM2835 master mode driver
+use core::iter::IntoIterator;
+
 use kernel::{
     bindings,
     clk::Clk,
@@ -9,7 +11,10 @@ use kernel::{
     device::{self, Device, RawDevice},
     driver::DeviceRemoval,
     error::to_result,
-    i2c::{self, I2cAdapter, I2cAdapterQuirks, I2cAlgorithm, I2cMsg, I2C_M_NOSTART, I2C_M_RD},
+    i2c::{
+        self, I2cAdapter, I2cAdapterQuirks, I2cAlgorithm, I2cMsg, I2C_M_IGNORE_NAK, I2C_M_NOSTART,
+        I2C_M_NO_RD_ACK, I2C_M_RD, I2C_M_RECV_LEN, I2C_M_REV_DIR_ADDR, I2C_M_STOP, I2C_M_TEN,
+    },
     io_mem::IoMem,
     irq,
     of::DeviceId,
@@ -71,7 +76,7 @@ pub const BCM2835_I2C_REDL_SHIFT: u32 = 0;
 pub const BCM2835_I2C_CDIV_MIN: u32 = 0x0002;
 pub const BCM2835_I2C_CDIV_MAX: u32 = 0xFFFE;
 
-pub const DEBUG: i32 = 0;
+pub const DEBUG: i32 = 3;
 
 /// SMBUs-recommended 35ms
 pub const CLK_TOUT_MS: u32 = 35;
@@ -268,7 +273,7 @@ impl Bcm2835I2cDev {
     pub(crate) fn bcm2835_fill_txfifo(&mut self) {
         while self.msg_buf_remaining > 0 {
             let val: u32 = self.bcm2835_i2c_readl(BCM2835_I2C_S);
-            if !(val & BCM2835_I2C_S_TXD) != 0 {
+            if val & BCM2835_I2C_S_TXD == 0 {
                 break;
             }
             // May Wrong!
@@ -277,7 +282,11 @@ impl Bcm2835I2cDev {
                 let byte = buf[0] as u32;
                 self.bcm2835_i2c_writel(BCM2835_I2C_FIFO, byte);
                 buf.remove(0);
-                self.msg_buf = Some(buf);
+                if buf.len() > 0 {
+                    self.msg_buf = Some(buf);
+                } else {
+                    self.msg_buf = None;
+                }
                 self.msg_buf_remaining -= 1;
             }
         }
@@ -286,14 +295,18 @@ impl Bcm2835I2cDev {
     pub(crate) fn bcm2835_drain_rxfifo(&mut self) {
         while self.msg_buf_remaining > 0 {
             let val: u32 = self.bcm2835_i2c_readl(BCM2835_I2C_S);
-            if !(val & BCM2835_I2C_S_RXD) != 0 {
+            if val & BCM2835_I2C_S_RXD == 0 {
                 break;
             }
             // May Wrong!
             if let Some(mut buf) = self.msg_buf.take() {
                 buf[0] = self.bcm2835_i2c_readl(BCM2835_I2C_FIFO) as u8;
                 buf.remove(0);
-                self.msg_buf = Some(buf);
+                if buf.len() > 0 {
+                    self.msg_buf = Some(buf);
+                } else {
+                    self.msg_buf = None;
+                }
                 self.msg_buf_remaining -= 1;
             }
         }
@@ -328,8 +341,8 @@ impl Bcm2835I2cDev {
             self.bcm2835_i2c_writel(BCM2835_I2C_DLEN, msg.len() as u32);
             self.bcm2835_i2c_writel(BCM2835_I2C_C, c);
             self.curr_msg = Some(curr_msg);
+            debug_add(self, !0);
         }
-        //debug add
     }
 
     pub(crate) fn bcm2835_i2c_finish_transfer(&mut self) {
@@ -341,14 +354,25 @@ impl Bcm2835I2cDev {
     }
 }
 
-fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
-    let i2c_dev = unsafe { &mut *(data as *mut Bcm2835I2cDev) };
+fn bcm2835_i2c_isr(this_irq: i32, i2c_dev: &mut Bcm2835I2cDev) -> irq::Return {
+    // let i2c_dev = unsafe { &mut *data.i2c_dev_ptr.cast::<Bcm2835I2cDev>() };
+    dev_info!(
+        i2c_dev.dev,
+        "Interrupt callback {}, i2c_dev_ptr: {:?}\n",
+        this_irq,
+        unsafe { i2c_dev.as_ptr() }
+    );
 
     let mut val: u32 = i2c_dev.bcm2835_i2c_readl(BCM2835_I2C_S);
-    let err: u32 = val & (BCM2835_I2C_S_CLKT | BCM2835_I2C_S_ERR);
+    dev_info!(i2c_dev.dev, "i2c status val: {:x}\n", val);
+    if i2c_dev.curr_msg.is_some() {
+        debug_add(i2c_dev, val);
+    }
 
+    let err: u32 = val & (BCM2835_I2C_S_CLKT | BCM2835_I2C_S_ERR);
     if err != 0 && (val & BCM2835_I2C_S_TA) == 0 {
         i2c_dev.msg_err = err;
+        dev_err!(i2c_dev.dev, "i2c device error: {:x}\n", err);
     }
 
     if val & BCM2835_I2C_S_DONE != 0 {
@@ -360,7 +384,7 @@ fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
             }
             None => {
                 dev_err!(i2c_dev.dev, "Got unexpected interrupt (from firmware?)\n");
-                return irq::Return::Handled;
+                // return irq::Return::Handled;
             }
             _ => {}
         }
@@ -381,9 +405,8 @@ fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
         i2c_dev.bcm2835_fill_txfifo();
 
         if i2c_dev.num_msgs != 0 && i2c_dev.msg_buf_remaining == 0 {
-            if let Some(ref mut curr_msg) = i2c_dev.curr_msg {
-                curr_msg.remove(0);
-            }
+            let curr_msg = i2c_dev.curr_msg.as_mut().expect("curr_msg is None");
+            curr_msg.remove(0);
             i2c_dev.bcm2835_i2c_start_transfer();
         }
 
@@ -404,7 +427,8 @@ fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
 }
 
 unsafe extern "C" fn bcm2835_i2c_isr_cb(this_irq: i32, data: *mut core::ffi::c_void) -> u32 {
-    bcm2835_i2c_isr(this_irq, unsafe { &mut *data.cast() }) as u32
+    let i2c_dev = unsafe { Bcm2835I2cDev::from_ptr(data as *mut Bcm2835I2cDev) };
+    bcm2835_i2c_isr(this_irq, i2c_dev) as u32
 }
 
 fn goto_complete(i2c_dev: &mut Bcm2835I2cDev) -> irq::Return {
@@ -418,29 +442,175 @@ fn goto_complete(i2c_dev: &mut Bcm2835I2cDev) -> irq::Return {
     irq::Return::Handled
 }
 
+fn debug_print_status(i2c_dev: &Bcm2835I2cDev, d: &Bcm2835Debug) {
+    let status = d.status;
+    pr_info!(
+        "isr: remain={} status=0x{:08X} : {} {} {} {} {} {} {} {} {} {}\n",
+        d.remain,
+        status,
+        if status & BCM2835_I2C_S_TA != 0 {
+            "TA "
+        } else {
+            ""
+        },
+        if status & BCM2835_I2C_S_DONE != 0 {
+            "DONE "
+        } else {
+            ""
+        },
+        if status & BCM2835_I2C_S_TXW != 0 {
+            "TXW "
+        } else {
+            ""
+        },
+        if status & BCM2835_I2C_S_RXR != 0 {
+            "RXR "
+        } else {
+            ""
+        },
+        if status & BCM2835_I2C_S_TXD != 0 {
+            "TXD "
+        } else {
+            ""
+        },
+        if status & BCM2835_I2C_S_RXD != 0 {
+            "RXD "
+        } else {
+            ""
+        },
+        if status & BCM2835_I2C_S_TXE != 0 {
+            "TXE "
+        } else {
+            ""
+        },
+        if status & BCM2835_I2C_S_RXF != 0 {
+            "RXF "
+        } else {
+            ""
+        },
+        if status & BCM2835_I2C_S_ERR != 0 {
+            "ERR "
+        } else {
+            ""
+        },
+        if status & BCM2835_I2C_S_CLKT != 0 {
+            "CLKT "
+        } else {
+            ""
+        },
+    )
+}
+
+fn debug_print_msg(i2c_dev: &Bcm2835I2cDev, msg: &I2cMsg, fname: &str, idx: i32, total: i32) {
+    let flags = msg.flags() as u32;
+    pr_info!(
+        "{fname}: msg({idx}/{total}) {} addr=0x{:02x}, len={} flags={}{}{}{}{}{}{} [i2c{}]\n",
+        if flags & I2C_M_RD != 0 {
+            "read"
+        } else {
+            "write"
+        },
+        msg.addr(),
+        msg.len(),
+        if flags & I2C_M_TEN != 0 { "TEN" } else { "" },
+        if flags & I2C_M_RECV_LEN != 0 {
+            "RECV_LEN"
+        } else {
+            ""
+        },
+        if flags & I2C_M_NO_RD_ACK != 0 {
+            "NO_RD_ACK"
+        } else {
+            ""
+        },
+        if flags & I2C_M_IGNORE_NAK != 0 {
+            "IGNORE_NAK"
+        } else {
+            ""
+        },
+        if flags & I2C_M_REV_DIR_ADDR != 0 {
+            "REV_DIR_ADDR"
+        } else {
+            ""
+        },
+        if flags & I2C_M_NOSTART != 0 {
+            "NOSTART"
+        } else {
+            ""
+        },
+        if flags & I2C_M_STOP != 0 { "STOP" } else { "" },
+        i2c_dev.adapter.0.nr,
+    );
+}
+
+fn debug_print(i2c_dev: &Bcm2835I2cDev) {
+    for d in &i2c_dev.debug {
+        if d.status == !0 {
+            debug_print_msg(
+                i2c_dev,
+                &d.msg,
+                "start_transfer",
+                d.msg_idx,
+                i2c_dev.debug_num_msgs as i32,
+            );
+        } else {
+            debug_print_status(i2c_dev, d);
+        }
+    }
+    if i2c_dev.debug_num >= BCM2835_DEBUG_MAX as u32 {
+        pr_info!("BCM2835_DEBUG_MAX reached\n");
+    }
+}
+
+fn debug_add(i2c_dev: &mut Bcm2835I2cDev, s: u32) {
+    if i2c_dev.debug_num_msgs == 0 || i2c_dev.debug_num >= BCM2835_DEBUG_MAX as u32 {
+        return;
+    }
+
+    let n = i2c_dev.debug_num as usize;
+
+    i2c_dev.debug[n].msg = i2c_dev.curr_msg.as_ref().unwrap()[0].clone();
+    i2c_dev.debug[n].msg_idx = i2c_dev.debug_num_msgs as i32 - i2c_dev.num_msgs;
+    i2c_dev.debug[n].remain = i2c_dev.msg_buf_remaining;
+    i2c_dev.debug[n].status = s;
+    i2c_dev.debug_num += 1;
+}
+
 fn bcm2835_i2c_xfer(adap: &mut I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<i32> {
     let i2c_dev = unsafe { &mut (*adap.i2c_get_adapdata::<Bcm2835I2cDev>()) };
     let mut ignore_nak = false;
 
-    if unsafe { DEBUG != 0 } {
+    if DEBUG > 0 {
         i2c_dev.debug_num_msgs = num as u32;
     }
 
-    if unsafe { DEBUG > 2 } {
-        // for 0..num {
-        //     print msg
-        // }
+    if DEBUG > 2 {
+        let mut idx = 1;
+        for msg in &msgs {
+            debug_print_msg(i2c_dev, &msg, "i2c_xfer", idx, num);
+            idx += 1;
+        }
     }
 
-    for msg in &msgs {
+    dev_info!(i2c_dev.dev, "i2c_xfer: num = {}\n", num);
+
+    for msg in &msgs[0..msgs.len() - 1] {
+        dev_info!(
+            i2c_dev.dev,
+            "  msg: addr = 0x{:x}, flags = 0x{:x}, len = {}\n",
+            msg.addr(),
+            msg.flags(),
+            msg.len()
+        );
+
         if msg.flags() as u32 & I2C_M_RD != 0 {
             dev_warn!(
                 i2c_dev.dev,
                 "only one read message supported, has to be last\n"
             );
-            return Err(EOPENSTALE);
+            return Err(ENOTSUPP);
         }
-        if msg.flags() as u32 & I2C_M_NOSTART != 0 {
+        if msg.flags() as u32 & I2C_M_IGNORE_NAK != 0 {
             ignore_nak = true;
         }
     }
@@ -448,8 +618,8 @@ fn bcm2835_i2c_xfer(adap: &mut I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Resul
     i2c_dev.curr_msg = Some(msgs);
     i2c_dev.num_msgs = num;
     i2c_dev.msg_err = 0;
-
     i2c_dev.completion.reinit();
+
     i2c_dev.bcm2835_i2c_start_transfer();
 
     let time_left = i2c_dev
@@ -462,8 +632,8 @@ fn bcm2835_i2c_xfer(adap: &mut I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Resul
         i2c_dev.msg_err &= !BCM2835_I2C_S_ERR;
     }
 
-    if unsafe { DEBUG > 1 || (DEBUG != 0 && (time_left == 0 || i2c_dev.msg_err != 0)) } {
-        // debug print
+    if DEBUG > 1 || (DEBUG != 0 && (time_left == 0 || i2c_dev.msg_err != 0)) {
+        debug_print(i2c_dev);
     }
 
     i2c_dev.debug_num_msgs = 0;
@@ -491,7 +661,9 @@ fn bcm2835_i2c_xfer(adap: &mut I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Resul
 }
 
 fn bcm2835_i2c_func(adap: &I2cAdapter) -> u32 {
-    i2c::I2C_FUNC_I2C | i2c::I2C_FUNC_10BIT_ADDR | i2c::I2C_FUNC_PROTOCOL_MANGLING
+    let f = i2c::I2C_FUNC_I2C | i2c::I2C_FUNC_SMBUS_EMUL | i2c::I2C_FUNC_PROTOCOL_MANGLING;
+    pr_info!("i2c func = 0x{:x}\n", f);
+    f
 }
 
 // I2C_AQ ..
@@ -661,20 +833,25 @@ impl platform::Driver for Bcm2835I2cDriver {
             Bcm2835I2cData { dev, i2c_dev_ptr },
             "BCM2835_I2C device data"
         )?;
+
         Ok(dev_data.into())
     }
 
     fn remove(data: &Self::Data) -> Result {
         pr_info!("BCM2835 i2c bus device driver remove.\n");
         // TODO: remove i2c driver
+        Ok(())
+    }
+}
 
+impl DeviceRemoval for Bcm2835I2cData {
+    fn device_remove(&self) {
+        pr_info!("BCM2835 i2c bus device driver remove.\n");
         unsafe {
             bindings::devm_kfree(
-                data.dev.raw_device(),
-                data.i2c_dev_ptr as *const _ as *const core::ffi::c_void,
+                self.dev.raw_device(),
+                self.i2c_dev_ptr as *const _ as *const core::ffi::c_void,
             );
         }
-
-        Ok(())
     }
 }
