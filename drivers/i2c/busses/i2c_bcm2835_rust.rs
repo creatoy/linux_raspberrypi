@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 //! BCM2835 master mode driver
-use core::{clone::Clone, mem::MaybeUninit, ops::Deref};
+use core::{clone::Clone, convert::Into, mem::MaybeUninit, ops::Deref};
 
 use kernel::{
     bindings, c_str,
@@ -12,7 +12,10 @@ use kernel::{
     device::{self, Device, RawDevice},
     driver::DeviceRemoval,
     error::to_result,
-    i2c::{self, I2cAdapter, I2cAdapterQuirks, I2cAlgorithm, I2cMsg, I2C_M_NOSTART, I2C_M_RD},
+    i2c::{
+        self, I2cAdapter, I2cAdapterQuirks, I2cAlgorithm, I2cMsg, I2C_M_IGNORE_NAK, I2C_M_NOSTART,
+        I2C_M_NO_RD_ACK, I2C_M_RD, I2C_M_RECV_LEN, I2C_M_REV_DIR_ADDR, I2C_M_STOP, I2C_M_TEN,
+    },
     interrupt::{request_irq, IrqHandler, IRQF_SHARED},
     io_mem::IoMem,
     irq, module_platform_driver, new_completion,
@@ -74,7 +77,7 @@ pub const BCM2835_I2C_REDL_SHIFT: u32 = 0;
 pub const BCM2835_I2C_CDIV_MIN: u32 = 0x0002;
 pub const BCM2835_I2C_CDIV_MAX: u32 = 0xFFFE;
 
-pub const DEBUG: i32 = 0;
+pub const DEBUG: i32 = 3;
 
 /// SMBUs-recommended 35ms
 pub const CLK_TOUT_MS: u32 = 35;
@@ -82,7 +85,7 @@ pub const CLK_TOUT_MS: u32 = 35;
 /// Maximum number of debug messages
 pub const BCM2835_DEBUG_MAX: usize = 512;
 struct Bcm2835Debug {
-    msg: I2cMsg,
+    msg: *mut I2cMsg,
     msg_idx: i32,
     remain: usize,
     status: u32,
@@ -94,15 +97,16 @@ struct Bcm2835Debug {
 // Use Vec<T> as a ptr buf
 struct Bcm2835I2cDev {
     dev: Device,
-    reg_base: *mut u8,
+    regs: *mut u8,
     irq: i32,
     adapter: I2cAdapter,
     completion: Completion,
     curr_msg: Option<Vec<I2cMsg>>,
+    curr_idx: usize,
     bus_clk: Box<Clk>,
     num_msgs: i32,
     msg_err: u32,
-    msg_buf: Option<Vec<u8>>,
+    msg_buf: Option<*mut u8>,
     msg_buf_remaining: usize,
     debug: [Bcm2835Debug; BCM2835_DEBUG_MAX],
     debug_num: u32,
@@ -157,7 +161,7 @@ fn clk_bcm2835_i2c_set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result<(
     let div = to_clk_bcm2835_i2c(hw);
     let divider = clk_bcm2835_i2c_calc_divider(rate, parent_rate)? as u32;
 
-    div.i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_DIV, divider);
+    div.i2c_dev.i2c_writel(BCM2835_I2C_DIV, divider);
 
     /*
      * Number of core clocks to wait after falling edge before
@@ -172,7 +176,7 @@ fn clk_bcm2835_i2c_set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result<(
      */
     let redl = 1.max(divider / 4);
 
-    div.i2c_dev.bcm2835_i2c_writel(
+    div.i2c_dev.i2c_writel(
         BCM2835_I2C_DEL,
         ((fedl << BCM2835_I2C_FEDL_SHIFT) | (redl << BCM2835_I2C_REDL_SHIFT)) as u32,
     );
@@ -188,7 +192,7 @@ fn clk_bcm2835_i2c_set_rate(hw: &ClkHw, rate: u64, parent_rate: u64) -> Result<(
         }
     };
 
-    div.i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_CLKT, clk_tout);
+    div.i2c_dev.i2c_writel(BCM2835_I2C_CLKT, clk_tout);
 
     Ok(())
 }
@@ -203,7 +207,7 @@ fn clk_bcm2835_i2c_round_rate(hw: &ClkHw, rate: u64, parent_rate: &mut u64) -> i
 
 fn clk_bcm2835_i2c_recalc_rate(hw: &ClkHw, parent_rate: u64) -> u64 {
     let div = to_clk_bcm2835_i2c(hw);
-    let divider = div.i2c_dev.bcm2835_i2c_readl(BCM2835_I2C_DIV) as u64;
+    let divider = div.i2c_dev.i2c_readl(BCM2835_I2C_DIV) as u64;
 
     parent_rate.div_ceil(divider)
 }
@@ -227,19 +231,153 @@ impl ClkOps for ClkBcm2835I2cOps {
 }
 
 impl Bcm2835I2cDev {
-    pub(crate) fn bcm2835_i2c_writel(&self, reg: usize, val: u32) {
-        let i2c_reg = self.reg_base;
+    pub(crate) fn debug_add(&mut self, s: u32) {
+        if self.debug_num_msgs == 0 || self.debug_num >= BCM2835_DEBUG_MAX as u32 {
+            return;
+        }
+
+        if let Some(ref curr_msg) = self.curr_msg {
+            let n = self.debug_num as usize;
+            self.debug[n].msg = &curr_msg[self.curr_idx] as *const _ as *mut _;
+            self.debug[n].msg_idx = self.debug_num_msgs as i32 - self.num_msgs;
+            self.debug[n].remain = self.msg_buf_remaining;
+            self.debug[n].status = s;
+            self.debug_num += 1;
+        }
+    }
+
+    pub(crate) fn debug_print_status(&self, d: &Bcm2835Debug) {
+        let s = d.status;
+
+        pr_info!(
+            "isr: remain={} , status=0x{:x} : {}{}{}{}{}{}{}{}{}{} [i2c{}]\n",
+            d.remain,
+            s,
+            if s & BCM2835_I2C_S_TA != 0 { "TA " } else { "" },
+            if s & BCM2835_I2C_S_DONE != 0 {
+                "DONE "
+            } else {
+                ""
+            },
+            if s & BCM2835_I2C_S_TXW != 0 {
+                "TXW "
+            } else {
+                ""
+            },
+            if s & BCM2835_I2C_S_RXR != 0 {
+                "RXR "
+            } else {
+                ""
+            },
+            if s & BCM2835_I2C_S_TXD != 0 {
+                "TXD "
+            } else {
+                ""
+            },
+            if s & BCM2835_I2C_S_RXD != 0 {
+                "RXD "
+            } else {
+                ""
+            },
+            if s & BCM2835_I2C_S_TXE != 0 {
+                "TXE "
+            } else {
+                ""
+            },
+            if s & BCM2835_I2C_S_RXF != 0 {
+                "RXF "
+            } else {
+                ""
+            },
+            if s & BCM2835_I2C_S_ERR != 0 {
+                "ERR "
+            } else {
+                ""
+            },
+            if s & BCM2835_I2C_S_CLKT != 0 {
+                "CLKT "
+            } else {
+                ""
+            },
+            self.adapter.nr()
+        )
+    }
+
+    pub(crate) fn debug_print_msg(&self, msg: &I2cMsg, i: i32, total: i32, fname: &'static str) {
+        let flags = msg.flags() as u32;
+        pr_info!(
+            "{fname}: msg({i}/{total}) {} addr=0x{:02x}, len={} flags={}{}{}{}{}{}{} [i2c{}]\n",
+            if flags & I2C_M_RD != 0 {
+                "read"
+            } else {
+                "write"
+            },
+            msg.addr(),
+            msg.len(),
+            if flags & I2C_M_TEN != 0 { "TEN " } else { "" },
+            if flags & I2C_M_RECV_LEN != 0 {
+                "RECV_LEN "
+            } else {
+                ""
+            },
+            if flags & I2C_M_NO_RD_ACK != 0 {
+                "NO_RD_ACK "
+            } else {
+                ""
+            },
+            if flags & I2C_M_IGNORE_NAK != 0 {
+                "IGNORE_NAK "
+            } else {
+                ""
+            },
+            if flags & I2C_M_REV_DIR_ADDR != 0 {
+                "REV_DIR_ADDR "
+            } else {
+                ""
+            },
+            if flags & I2C_M_NOSTART != 0 {
+                "NOSTART "
+            } else {
+                ""
+            },
+            if flags & I2C_M_STOP != 0 { "STOP " } else { "" },
+            self.adapter.nr(),
+        )
+    }
+
+    pub(crate) fn debug_print(&self) {
+        if self.debug_num >= BCM2835_DEBUG_MAX as u32 {
+            pr_info!("BCM2835_DEBUG_MAX reached\n");
+            return;
+        };
+
+        for d in &self.debug[..self.debug_num as usize] {
+            if d.status == !0 {
+                self.debug_print_msg(
+                    unsafe { &*d.msg },
+                    d.msg_idx,
+                    self.debug_num_msgs as i32,
+                    "start_transfer",
+                )
+            } else {
+                self.debug_print_status(d)
+            }
+        }
+    }
+
+    pub(crate) fn i2c_writel(&self, reg: usize, val: u32) {
+        let i2c_reg = self.regs;
         let addr = i2c_reg.wrapping_add(reg);
         unsafe { bindings::writel(val as _, addr as _) }
     }
 
-    pub(crate) fn bcm2835_i2c_readl(&self, reg: usize) -> u32 {
-        let i2c_reg = self.reg_base;
+    pub(crate) fn i2c_readl(&self, reg: usize) -> u32 {
+        let i2c_reg = self.regs;
         let addr = i2c_reg.wrapping_add(reg);
         unsafe { bindings::readl(addr as _) }
     }
 
-    pub(crate) fn bcm2835_i2c_register_div(&mut self, mclk: &Clk) -> Result<Box<Clk>> {
+    pub(crate) fn i2c_register_div(&mut self, mclk: &Clk) -> Result<Box<Clk>> {
         let name = CString::try_from_fmt(fmt!("{}_div", self.dev.name()))?;
         let mclk_name = mclk.name();
         let parent_names = [mclk_name.as_char_ptr()];
@@ -264,17 +402,19 @@ impl Bcm2835I2cDev {
 
     pub(crate) fn bcm2835_fill_txfifo(&mut self) {
         while self.msg_buf_remaining > 0 {
-            let val: u32 = self.bcm2835_i2c_readl(BCM2835_I2C_S);
-            if !(val & BCM2835_I2C_S_TXD) != 0 {
+            let val: u32 = self.i2c_readl(BCM2835_I2C_S);
+            if val & BCM2835_I2C_S_TXD == 0 {
                 break;
             }
             // May Wrong!
-            if let Some(mut buf) = self.msg_buf.take() {
+            if let Some(buf) = self.msg_buf.take() {
                 // Safety: msg_buf_remaining > 0
-                let byte = buf[0] as u32;
-                self.bcm2835_i2c_writel(BCM2835_I2C_FIFO, byte);
-                buf.remove(0);
-                self.msg_buf = Some(buf);
+                let byte = unsafe { *buf as u32 };
+                self.i2c_writel(BCM2835_I2C_FIFO, byte);
+                self.msg_buf = unsafe {
+                    let buf = buf.add(1);
+                    Some(buf)
+                };
                 self.msg_buf_remaining -= 1;
             }
         }
@@ -282,15 +422,17 @@ impl Bcm2835I2cDev {
 
     pub(crate) fn bcm2835_drain_rxfifo(&mut self) {
         while self.msg_buf_remaining > 0 {
-            let val: u32 = self.bcm2835_i2c_readl(BCM2835_I2C_S);
+            let val: u32 = self.i2c_readl(BCM2835_I2C_S);
             if !(val & BCM2835_I2C_S_RXD) != 0 {
                 break;
             }
             // May Wrong!
             if let Some(mut buf) = self.msg_buf.take() {
-                buf[0] = self.bcm2835_i2c_readl(BCM2835_I2C_FIFO) as u8;
-                buf.remove(0);
-                self.msg_buf = Some(buf);
+                unsafe { *buf = self.i2c_readl(BCM2835_I2C_FIFO) as u8 };
+                self.msg_buf = unsafe {
+                    let buf = buf.add(1);
+                    Some(buf)
+                };
                 self.msg_buf_remaining -= 1;
             }
         }
@@ -303,9 +445,8 @@ impl Bcm2835I2cDev {
             if self.num_msgs == 0 {
                 return;
             }
-
             // Safety: curr_msg is not empty due to num_msgs > 0
-            let msg = curr_msg.remove(0);
+            let msg = &curr_msg[self.curr_idx];
             let last_msg = self.num_msgs == 1;
 
             self.num_msgs -= 1;
@@ -322,16 +463,19 @@ impl Bcm2835I2cDev {
                 c |= BCM2835_I2C_C_INTD;
             }
 
-            self.bcm2835_i2c_writel(BCM2835_I2C_A, msg.addr() as u32);
-            self.bcm2835_i2c_writel(BCM2835_I2C_DLEN, msg.len() as u32);
-            self.bcm2835_i2c_writel(BCM2835_I2C_C, c);
+            self.i2c_writel(BCM2835_I2C_A, msg.addr() as u32);
+            self.i2c_writel(BCM2835_I2C_DLEN, msg.len() as u32);
+            self.i2c_writel(BCM2835_I2C_C, c);
             self.curr_msg = Some(curr_msg);
+
+            self.debug_add(!0);
         }
         //debug add
     }
 
     pub(crate) fn bcm2835_i2c_finish_transfer(&mut self) {
         self.curr_msg = None;
+        self.curr_idx = 0;
         self.num_msgs = 0;
 
         self.msg_buf = None;
@@ -339,12 +483,11 @@ impl Bcm2835I2cDev {
     }
 }
 
-fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
-    let i2c_dev = unsafe { &mut *(data as *mut Bcm2835I2cDev) };
+fn bcm2835_i2c_isr(this_irq: i32, i2c_dev: &mut Bcm2835I2cDev) -> irq::Return {
+    let mut val: u32 = i2c_dev.i2c_readl(BCM2835_I2C_S);
+    i2c_dev.debug_add(val);
 
-    let mut val: u32 = i2c_dev.bcm2835_i2c_readl(BCM2835_I2C_S);
     let err: u32 = val & (BCM2835_I2C_S_CLKT | BCM2835_I2C_S_ERR);
-
     if err != 0 && (val & BCM2835_I2C_S_TA) == 0 {
         i2c_dev.msg_err = err;
     }
@@ -352,9 +495,10 @@ fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
     if val & BCM2835_I2C_S_DONE != 0 {
         match i2c_dev.curr_msg {
             // Safety: curr_msg is not empty due to num_msgs > 0
-            Some(ref mut msg) if msg[0].flags() as u32 & I2C_M_RD != 0 => {
+            Some(ref mut msgs) if msgs[i2c_dev.curr_idx].flags() as u32 & I2C_M_RD != 0 => {
                 i2c_dev.bcm2835_drain_rxfifo();
-                val = i2c_dev.bcm2835_i2c_readl(BCM2835_I2C_S);
+                val = i2c_dev.i2c_readl(BCM2835_I2C_S);
+                dbg!("isr curr_msg readl: ", val);
             }
             None => {
                 dev_err!(i2c_dev.dev, "Got unexpected interrupt (from firmware?)\n");
@@ -378,9 +522,7 @@ fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
         i2c_dev.bcm2835_fill_txfifo();
 
         if i2c_dev.num_msgs != 0 && i2c_dev.msg_buf_remaining == 0 {
-            if let Some(ref mut msg) = i2c_dev.curr_msg {
-                msg.remove(0);
-            }
+            i2c_dev.curr_idx += 1;
             i2c_dev.bcm2835_i2c_start_transfer();
         }
 
@@ -401,8 +543,8 @@ fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
 }
 
 fn goto_complete(i2c_dev: &mut Bcm2835I2cDev) -> irq::Return {
-    i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, BCM2835_I2C_C_CLEAR);
-    i2c_dev.bcm2835_i2c_writel(
+    i2c_dev.i2c_writel(BCM2835_I2C_C, BCM2835_I2C_C_CLEAR);
+    i2c_dev.i2c_writel(
         BCM2835_I2C_S,
         BCM2835_I2C_CLKT as u32 | BCM2835_I2C_S_ERR | BCM2835_I2C_S_DONE,
     );
@@ -421,10 +563,6 @@ impl IrqHandler for Bcm2835I2cIrqHandler {
     }
 }
 
-unsafe extern "C" fn bcm2835_i2c_isr_cb(this_irq: i32, data: *mut core::ffi::c_void) -> u32 {
-    bcm2835_i2c_isr(this_irq, unsafe { &mut *data.cast() }) as u32
-}
-
 fn bcm2835_i2c_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<i32> {
     let i2c_dev = unsafe { &mut (*adap.i2c_get_adapdata::<Bcm2835I2cDev>()) };
     let mut ignore_nak = false;
@@ -434,29 +572,30 @@ fn bcm2835_i2c_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<i3
     }
 
     if unsafe { DEBUG > 2 } {
-        // for 0..num {
-        //     print msg
-        // }
+        for i in 0..num as usize {
+            i2c_dev.debug_print_msg(&msgs[i], (i + 1) as i32, num, "bcm2835_i2c_xfer")
+        }
     }
 
-    for msg in &msgs {
+    for msg in &msgs[0..(num - 1) as usize] {
         if msg.flags() as u32 & I2C_M_RD != 0 {
             dev_warn!(
                 i2c_dev.dev,
                 "only one read message supported, has to be last\n"
             );
-            return Err(EOPENSTALE);
+            return Err(ENOTSUPP);
         }
-        if msg.flags() as u32 & I2C_M_NOSTART != 0 {
+        if msg.flags() as u32 & I2C_M_IGNORE_NAK != 0 {
             ignore_nak = true;
         }
     }
 
     i2c_dev.curr_msg = Some(msgs);
+    i2c_dev.curr_idx = 0;
     i2c_dev.num_msgs = num;
     i2c_dev.msg_err = 0;
-
     i2c_dev.completion.reinit();
+
     i2c_dev.bcm2835_i2c_start_transfer();
 
     let time_left = i2c_dev
@@ -470,14 +609,14 @@ fn bcm2835_i2c_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<i3
     }
 
     if unsafe { DEBUG > 1 || (DEBUG != 0 && (time_left == 0 || i2c_dev.msg_err != 0)) } {
-        // debug print
+        i2c_dev.debug_print();
     }
 
     i2c_dev.debug_num_msgs = 0;
     i2c_dev.debug_num = 0;
 
     if time_left == 0 {
-        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, BCM2835_I2C_C_CLEAR);
+        i2c_dev.i2c_writel(BCM2835_I2C_C, BCM2835_I2C_C_CLEAR);
         dev_err!(i2c_dev.dev, "i2c transfer timed out\n");
         return Err(ETIMEDOUT);
     }
@@ -499,7 +638,7 @@ fn bcm2835_i2c_xfer(adap: &I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Result<i3
 
 #[inline]
 fn bcm2835_i2c_func(adap: &I2cAdapter) -> u32 {
-    i2c::I2C_FUNC_I2C | i2c::I2C_FUNC_10BIT_ADDR | i2c::I2C_FUNC_PROTOCOL_MANGLING
+    i2c::I2C_FUNC_I2C | i2c::I2C_FUNC_SMBUS_EMUL | i2c::I2C_FUNC_PROTOCOL_MANGLING
 }
 
 struct Bcm2835I2cAlgo;
@@ -545,11 +684,11 @@ impl platform::Driver for Bcm2835I2cDriver {
         i2c_dev.completion.init_completion();
 
         let reg_base = pdev.ioremap_resource(0)?;
-        i2c_dev.reg_base = reg_base;
+        i2c_dev.regs = reg_base;
         dev_info!(pdev, "I2c bus device reg_base: {:?}\n", reg_base);
 
         let mclk = dev.clk_get()?;
-        i2c_dev.bus_clk = i2c_dev.bcm2835_i2c_register_div(mclk)?;
+        i2c_dev.bus_clk = i2c_dev.i2c_register_div(mclk)?;
 
         let mut bus_clk_rate = 0;
         if let Err(_) = dev
@@ -603,8 +742,8 @@ impl platform::Driver for Bcm2835I2cDriver {
          * specifies a limit for how long the device can stretch the
          * clock, but core I2C doesn't.
          */
-        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_CLKT, 0);
-        i2c_dev.bcm2835_i2c_writel(BCM2835_I2C_C, 0);
+        i2c_dev.i2c_writel(BCM2835_I2C_CLKT, 0);
+        i2c_dev.i2c_writel(BCM2835_I2C_C, 0);
 
         if let Err(e) = i2c_dev.adapter.i2c_add_adapter() {
             dev_err!(pdev, "Could not add I2C adapter\n");

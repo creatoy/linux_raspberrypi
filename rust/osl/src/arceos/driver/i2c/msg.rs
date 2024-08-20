@@ -1,9 +1,9 @@
+use crate::driver::i2c::{GeneralI2cMsg, I2cMsgFlags};
 use crate::VecDeque;
-use crate::driver::i2c::{I2cMsgFlags, GeneralI2cMsg};
 
-/// an I2C transaction segment beginning with START 
+/// an I2C transaction segment beginning with START
 #[derive(Debug)]
-pub struct I2cMsg{
+pub struct I2cMsg {
     ///  Slave address, either 7 or 10 bits. When this is a 10 bit address,
     ///  I2C_M_TEN must be set in @flags and the adapter must support I2C_FUNC_10BIT_ADDR
     addr: u16,
@@ -35,18 +35,31 @@ impl Default for I2cMsg {
 unsafe impl Send for I2cMsg {}
 unsafe impl Sync for I2cMsg {}
 
-impl <const N: usize> GeneralI2cMsg for I2cMsg {
+impl<const N: usize> GeneralI2cMsg for I2cMsg {
     /// Create a new I2cMsg with addr and data that need to transfer
-    fn new_send(addr: u16, flags: I2cMsgFlags, data: [u8;N]) -> I2cMsg {
-         assert!(!flags.contains(I2cMsgFlags::I2cMasterRead));
-         I2cMsg { addr, flags, buf:VecDeque::from(data),recieve_cmd_cnt: 0, recieve_threshold: 0 }
+    fn new_send(addr: u16, flags: I2cMsgFlags, data: [u8; N]) -> I2cMsg {
+        assert!(!flags.contains(I2cMsgFlags::I2cMasterRead));
+        I2cMsg {
+            addr,
+            flags,
+            buf: VecDeque::from(data),
+            recieve_cmd_cnt: 0,
+            recieve_threshold: 0,
+        }
     }
 
     /// Create a new I2cMsg with addr and an empty buf that want to recive
     fn new_recieve(addr: u16, flags: I2cMsgFlags, len: usize) -> I2cMsg {
-         assert!(flags.contains(I2cMsgFlags::I2cMasterRead));
-         I2cMsg { addr, flags, buf: VecDeque::with_capacity(len), recieve_threshold: len, 
-             send_idx: 0, recieve_idx: 0,  recieve_cmd_cnt: 0}
+        assert!(flags.contains(I2cMsgFlags::I2cMasterRead));
+        I2cMsg {
+            addr,
+            flags,
+            buf: VecDeque::with_capacity(len),
+            recieve_threshold: len,
+            send_idx: 0,
+            recieve_idx: 0,
+            recieve_cmd_cnt: 0,
+        }
     }
 
     /// Get msg copy flags
@@ -59,8 +72,8 @@ impl <const N: usize> GeneralI2cMsg for I2cMsg {
         self.flags.remove(flag);
     }
 
-    /// Get msg addr 
-    pub fn addr(&self) -> u16{
+    /// Get msg addr
+    pub fn addr(&self) -> u16 {
         self.addr
     }
 
@@ -74,21 +87,21 @@ impl <const N: usize> GeneralI2cMsg for I2cMsg {
     /// int recieve_cmd_cnt
     pub fn inc_recieve_cmd_cnt(&mut self) {
         assert!(self.flags.contains(I2cMsgFlags::I2cMasterRead));
-        self.recieve_cmd_cnt +=1;
+        self.recieve_cmd_cnt += 1;
     }
 
     /// Check whether the buffer pointer has left last one
-    pub  fn send_left_last(&self) -> bool {
+    pub fn send_left_last(&self) -> bool {
         // MasterRead means msg can be write
         if self.flags.contains(I2cMsgFlags::I2cMasterRead) {
-            self.recieve_cmd_cnt as usize == self.recieve_threshold -1
+            self.recieve_cmd_cnt as usize == self.recieve_threshold - 1
         } else {
             self.data.len() == 1
         }
     }
 
     /// Check whether the buffer pointer has reached the end
-    pub  fn send_end(&self) -> bool {
+    pub fn send_end(&self) -> bool {
         // MasterRead means msg can be write
         if self.flags.contains(I2cMsgFlags::I2cMasterRead) {
             self.recieve_cmd_cnt as usize == self.recieve_threshold
@@ -98,14 +111,14 @@ impl <const N: usize> GeneralI2cMsg for I2cMsg {
     }
 
     /// Check whether the buffer pointer has reached the end
-    pub  fn recieve_end(&self) -> bool {
+    pub fn recieve_end(&self) -> bool {
         // MasterRead means msg can be write
         assert!(self.flags.contains(I2cMsgFlags::I2cMasterRead));
         self.data.len() == self.recieve_threshold
     }
 
     /// Write 1byte at the specified location
-    pub  fn push_byte(&mut self, byte: u8) {
+    pub fn push_byte(&mut self, byte: u8) {
         // MasterRead means msg can be write
         assert!(self.flags.contains(I2cMsgFlags::I2cMasterRead));
 
@@ -116,8 +129,8 @@ impl <const N: usize> GeneralI2cMsg for I2cMsg {
     }
 
     /// Read 1byte from specified location
-    pub  fn pop_front_byte(&mut self) -> u8 {
-        // MasterRead means msg can be write, don't alow read 
+    pub fn pop_front_byte(&mut self) -> u8 {
+        // MasterRead means msg can be write, don't alow read
         assert!(!self.flags.contains(I2cMsgFlags::I2cMasterRead));
 
         if self.send_end() {

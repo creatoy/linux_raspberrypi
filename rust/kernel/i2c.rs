@@ -6,8 +6,8 @@ use crate::{
     types::{ForeignOwnable, Opaque},
     ThisModule,
 };
-use alloc::vec::Vec;
-use core::{ffi::c_void, marker::PhantomData, mem};
+use alloc::{collections, vec::Vec};
+use core::{ffi::c_void, marker::PhantomData, mem, ptr::null_mut};
 use core::{mem::MaybeUninit, slice};
 use macros::vtable;
 
@@ -165,16 +165,16 @@ impl I2cMsg {
         self.0.addr
     }
 
-    /// return buf of i2c_msg and transfer ownership of the buf
-    pub fn read_buf(&self) -> Option<Vec<u8>> {
+    /// return the ptr to the buf.
+    pub fn read_buf(&self) -> Option<*mut u8> {
         let len = self.len() as usize;
-        let buf = unsafe { self.0.buf as *const _ as *mut u8 };
+        let buf = self.0.buf;
+
         if buf.is_null() {
             return None;
         }
-        // Safety: buf is valid for len bytes, no contiguity.
-        let vec: Vec<u8> = unsafe { Vec::from_raw_parts(buf, len, len) };
-        Some(vec)
+
+        Some(buf)
     }
 
     /// a step forward to next i2c_msg
@@ -227,6 +227,10 @@ impl I2cAdapter {
 
     pub fn timeout(&self) -> usize {
         unsafe { self.0.timeout as usize }
+    }
+
+    pub fn nr(&self) -> i32 {
+        unsafe { self.0.nr as i32 }
     }
 
     pub fn set_up<T: I2cAlgorithm>(
