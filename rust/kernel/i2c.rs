@@ -120,43 +120,74 @@ impl I2cAdapterQuirks {
 
 /// Represents i2c_msg
 ///
-/// Note: all primitive fields are __u16 type in C, represented as u16 in Rust.
-/// Note: buf is a raw pointer
-/// Note: struct i2c_msg *msg is a i2c_msg ptr buf.
+/// Note: usually i2c_msg buf is a continuous memory block, you may encounter 2 ways to represent it:
+///
+/// ptr: &i2c_msg, len: usize
+///
+/// buf: Vec<I2cMsg>
+///
+/// In first case, we could step_next to the next block; In second case, we could take it as usual Vec or Slice.
 pub struct I2cMsg(bindings::i2c_msg);
 
 impl I2cMsg {
-    // Create I2CMsg buf from raw pointer
-    pub fn from_raw<'a>(ptr: *mut bindings::i2c_msg, len: usize) -> Vec<Self> {
-        let buf_ptr = unsafe { Vec::from_raw_parts(ptr.cast::<I2cMsg>(), len, len) };
-        unsafe { buf_ptr }
+    /// Create a new instance of the Vec<I2cMsg>
+    pub fn from_raw(ptr: *mut bindings::i2c_msg, len: usize) -> Vec<Self> {
+        unsafe {
+            let ptr = ptr.cast::<Self>();
+            Vec::from_raw_parts(ptr, len, len)
+        }
+    }
+
+    /// Expose the raw pointer of i2c_msg of the Vec<I2cMsg>
+    pub fn vec_as_ptr(vec: Vec<I2cMsg>) -> *mut bindings::i2c_msg {
+        let ptr = vec.as_ptr() as *mut bindings::i2c_msg;
+        mem::forget(vec);
+        ptr
+    }
+
+    /// Expose the raw pointer of i2c_msg of the I2cMsg
+    pub fn as_ptr(&self) -> *mut bindings::i2c_msg {
+        &self.0 as *const _ as *mut _
     }
 
     /// return flags of i2c_msg
     pub fn flags(&self) -> u16 {
-        self.0.flags as u16
+        self.0.flags
     }
 
     /// return len of i2c_msg
     pub fn len(&self) -> u16 {
-        self.0.len as u16
+        self.0.len
     }
 
     /// return addr of i2c_msg
     pub fn addr(&self) -> u16 {
-        self.0.addr as u16
+        self.0.addr
     }
 
     /// return buf of i2c_msg and transfer ownership of the buf
-    pub fn buf_to_vec(&self) -> Option<Vec<u8>> {
+    pub fn read_buf(&self) -> Option<Vec<u8>> {
         let len = self.len() as usize;
-        let buf = self.0.buf as *const _ as *mut u8;
+        let buf = unsafe { self.0.buf as *const _ as *mut u8 };
         if buf.is_null() {
             return None;
         }
         // Safety: buf is valid for len bytes, no contiguity.
         let vec: Vec<u8> = unsafe { Vec::from_raw_parts(buf, len, len) };
         Some(vec)
+    }
+
+    /// a step forward to next i2c_msg
+    ///
+    /// # Safety
+    ///
+    /// You should not use this method if you use the Vec<I2cMsg> to represent the i2c_msg buf. You should ensure the bound of i2c_msg is valid.
+    pub unsafe fn step_next(&mut self) {
+        unsafe {
+            // ensure the bound of i2c_msg is valid
+            let ptr = &self.0 as *const _ as *mut bindings::i2c_msg;
+            self.0 = *(ptr.add(1));
+        }
     }
 }
 

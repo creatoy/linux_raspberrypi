@@ -304,11 +304,12 @@ impl Bcm2835I2cDev {
                 return;
             }
 
-            let msg = &curr_msg[0];
+            // Safety: curr_msg is not empty due to num_msgs > 0
+            let msg = curr_msg.remove(0);
             let last_msg = self.num_msgs == 1;
 
             self.num_msgs -= 1;
-            self.msg_buf = msg.buf_to_vec();
+            self.msg_buf = msg.read_buf();
             self.msg_buf_remaining = msg.len() as usize;
 
             if msg.flags() as u32 & I2C_M_RD != 0 {
@@ -350,14 +351,13 @@ fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
 
     if val & BCM2835_I2C_S_DONE != 0 {
         match i2c_dev.curr_msg {
-            // Note: we represent the ptr buf with vec and the ptr to 0th element is the same as the ptr to the place in C.
+            // Safety: curr_msg is not empty due to num_msgs > 0
             Some(ref mut msg) if msg[0].flags() as u32 & I2C_M_RD != 0 => {
                 i2c_dev.bcm2835_drain_rxfifo();
                 val = i2c_dev.bcm2835_i2c_readl(BCM2835_I2C_S);
             }
             None => {
                 dev_err!(i2c_dev.dev, "Got unexpected interrupt (from firmware?)\n");
-                return irq::Return::Handled;
             }
             _ => {}
         }
@@ -378,8 +378,8 @@ fn bcm2835_i2c_isr(this_irq: i32, data: &mut Bcm2835I2cDev) -> irq::Return {
         i2c_dev.bcm2835_fill_txfifo();
 
         if i2c_dev.num_msgs != 0 && i2c_dev.msg_buf_remaining == 0 {
-            if let Some(ref mut curr_msg) = i2c_dev.curr_msg {
-                curr_msg.remove(0);
+            if let Some(ref mut msg) = i2c_dev.curr_msg {
+                msg.remove(0);
             }
             i2c_dev.bcm2835_i2c_start_transfer();
         }
