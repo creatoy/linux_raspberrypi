@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-2.0
 
 //! BCM2835 master mode driver
-use core::{clone::Clone, convert::Into, mem::MaybeUninit, ops::Deref};
+use core::{clone::Clone, mem::MaybeUninit};
 
 use kernel::{
     bindings, c_str,
@@ -17,7 +17,6 @@ use kernel::{
         I2C_M_NO_RD_ACK, I2C_M_RD, I2C_M_RECV_LEN, I2C_M_REV_DIR_ADDR, I2C_M_STOP, I2C_M_TEN,
     },
     interrupt::{request_irq, IrqHandler, IRQF_SHARED},
-    io_mem::IoMem,
     irq, module_platform_driver, new_completion,
     of::DeviceId,
     platform,
@@ -114,29 +113,28 @@ struct Bcm2835I2cDev {
 }
 
 impl Bcm2835I2cDev {
-    unsafe fn from_ptr<'a>(ptr: *mut Self) -> &'a mut Self {
-        unsafe { &mut *ptr.cast() }
+    fn from_raw<'a>(ptr: *mut Self) -> &'a mut Self {
+        unsafe { &mut *ptr }
     }
 
-    unsafe fn as_ptr(&self) -> *mut Self {
+    fn as_ptr(&self) -> *mut Self {
         self as *const _ as *mut _
     }
 }
 
-struct ClkBcm2835I2c<'c> {
+struct ClkBcm2835I2c<'a> {
     hw: ClkHw,
-    i2c_dev: &'c Bcm2835I2cDev,
-}
-
-fn to_clk_bcm2835_i2c(hw_ptr: &ClkHw) -> &mut ClkBcm2835I2c<'_> {
-    unsafe { &mut *(container_of!(hw_ptr, ClkBcm2835I2c<'_>, hw) as *mut ClkBcm2835I2c<'_>) }
+    i2c_dev: &'a Bcm2835I2cDev,
 }
 
 impl<'c> ClkBcm2835I2c<'c> {
     fn from_raw<'a>(ptr: *mut Self) -> &'a mut Self {
-        let ptr = ptr.cast::<Self>();
         unsafe { &mut *ptr }
     }
+}
+
+fn to_clk_bcm2835_i2c(hw_ptr: &ClkHw) -> &mut ClkBcm2835I2c<'_> {
+    unsafe { &mut *(container_of!(hw_ptr, ClkBcm2835I2c<'_>, hw) as *mut ClkBcm2835I2c<'_>) }
 }
 
 fn clk_bcm2835_i2c_calc_divider(rate: u64, parent_rate: u64) -> Result<u64> {
@@ -406,9 +404,7 @@ impl Bcm2835I2cDev {
             if val & BCM2835_I2C_S_TXD == 0 {
                 break;
             }
-            // May Wrong!
             if let Some(buf) = self.msg_buf.take() {
-                // Safety: msg_buf_remaining > 0
                 let byte = unsafe { *buf as u32 };
                 self.i2c_writel(BCM2835_I2C_FIFO, byte);
                 self.msg_buf = unsafe {
@@ -426,7 +422,6 @@ impl Bcm2835I2cDev {
             if !(val & BCM2835_I2C_S_RXD) != 0 {
                 break;
             }
-            // May Wrong!
             if let Some(mut buf) = self.msg_buf.take() {
                 unsafe { *buf = self.i2c_readl(BCM2835_I2C_FIFO) as u8 };
                 self.msg_buf = unsafe {
@@ -658,9 +653,9 @@ impl I2cAlgorithm for Bcm2835I2cAlgo {
 //I2cAdapterQuirks::new().set_flags(i2c::I2C_AQ_NO_CLK_STRETCH as u64);
 
 struct Bcm2835I2cData {
-    pub(crate) dev: Device,
     pub(crate) i2c_dev_ptr: *mut Bcm2835I2cDev,
 }
+
 unsafe impl Sync for Bcm2835I2cData {}
 unsafe impl Send for Bcm2835I2cData {}
 
@@ -679,7 +674,7 @@ impl platform::Driver for Bcm2835I2cDriver {
 
         let dev = Device::from_dev(pdev);
         let i2c_dev_ptr: *mut Bcm2835I2cDev = dev.kzalloc::<Bcm2835I2cDev>()?;
-        let i2c_dev = unsafe { Bcm2835I2cDev::from_ptr(i2c_dev_ptr) };
+        let i2c_dev = unsafe { Bcm2835I2cDev::from_raw(i2c_dev_ptr) };
         i2c_dev.dev = dev.clone();
         i2c_dev.completion.init_completion();
 
@@ -733,9 +728,7 @@ impl platform::Driver for Bcm2835I2cDriver {
             quirks,
         );
         i2c_dev.adapter = adap;
-        unsafe {
-            i2c_dev.adapter.i2c_set_adapdata(i2c_dev.as_ptr());
-        }
+        i2c_dev.adapter.i2c_set_adapdata(i2c_dev.as_ptr());
 
         /*
          * Disable the hardware clock stretching timeout. SMBUS
@@ -753,7 +746,7 @@ impl platform::Driver for Bcm2835I2cDriver {
         let dev_data = kernel::new_device_data!(
             (),
             (),
-            Bcm2835I2cData { dev, i2c_dev_ptr },
+            Bcm2835I2cData { i2c_dev_ptr },
             "BCM2835_I2C device data"
         )?;
 
@@ -761,12 +754,24 @@ impl platform::Driver for Bcm2835I2cDriver {
     }
 
     fn remove(_data: &Self::Data) -> Result {
-        pr_info!("BCM2835 i2c bus device driver remove.\n");
+        pr_info!("BCM2835 i2c bus driver remove.\n");
         // impl drop for:
         // clk: clk_rate_exclusive_put, disable_unprepare
         // irq: free_irq
         // i2c_adapter: i2c_del_adapter
         Ok(())
+    }
+}
+
+impl DeviceRemoval for Bcm2835I2cData {
+    fn device_remove(&self) {
+        pr_info!("BCM2835 i2c bus device remove.\n");
+        unsafe {
+            bindings::devm_kfree(
+                (*self.i2c_dev_ptr).dev.raw_device(),
+                self.i2c_dev_ptr as *const _ as *const core::ffi::c_void,
+            )
+        }
     }
 }
 

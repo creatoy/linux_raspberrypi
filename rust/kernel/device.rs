@@ -3,14 +3,12 @@
 //! Generic devices that are part of the kernel's driver model.
 //!
 //! C header: [`include/linux/device.h`](../../../../include/linux/device.h)
-use alloc::boxed::Box;
-
 use crate::{
     bindings,
-    clk::{self, Clk},
+    clk::Clk,
     clk_provider::ClkHw,
     dev_err,
-    error::{code::*, from_err_ptr, to_result, Result},
+    error::{code::*, from_err_ptr, Result},
     macros::pin_data,
     of::DeviceNode,
     pin_init, pr_crit,

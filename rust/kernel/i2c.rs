@@ -3,12 +3,15 @@ use crate::{
     error::{from_result, to_result, Result},
     prelude::ENOTSUPP,
     str::CStr,
-    types::{ForeignOwnable, Opaque},
+    types::ForeignOwnable,
     ThisModule,
 };
-use alloc::{collections, vec::Vec};
-use core::{ffi::c_void, marker::PhantomData, mem, ptr::null_mut};
-use core::{mem::MaybeUninit, slice};
+use alloc::vec::Vec;
+use core::{
+    ffi::c_void,
+    marker::PhantomData,
+    mem::{self, MaybeUninit},
+};
 use macros::vtable;
 
 pub const I2C_M_RD: u32 = bindings::I2C_M_RD;
@@ -108,6 +111,7 @@ impl I2cAdapterQuirks {
         Self(up)
     }
 
+    #[inline]
     pub fn as_ptr(&self) -> *mut bindings::i2c_adapter_quirks {
         &self.0 as *const _ as *mut _
     }
@@ -212,11 +216,11 @@ impl I2cAdapter {
         &self.0 as *const _ as *mut _
     }
 
-    pub unsafe fn i2c_get_adapdata<T>(&self) -> *mut T {
+    pub fn i2c_get_adapdata<T>(&self) -> *mut T {
         unsafe { bindings::dev_get_drvdata(&self.0.dev as *const _ as *mut _) as *mut T }
     }
 
-    pub unsafe fn i2c_set_adapdata<T>(&mut self, data: *mut T) {
+    pub fn i2c_set_adapdata<T>(&mut self, data: *mut T) {
         unsafe { bindings::dev_set_drvdata(&self.0.dev as *const _ as *mut _, data as *mut c_void) }
     }
 

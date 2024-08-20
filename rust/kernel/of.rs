@@ -127,7 +127,7 @@ impl DeviceNode {
         }
     }
 
-    // Note: Try to implement in a award way. Wait for imporvement.
+    // Note: Try to implement in a awkward way. Wait for imporvement.
     fn read_u32_array(&self, propname: &'static CStr, out_value: &mut u32, sz: usize) -> Result {
         let ret = unsafe {
             bindings::of_property_read_variable_u32_array(

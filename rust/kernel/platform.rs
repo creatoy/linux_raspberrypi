@@ -5,21 +5,16 @@
 //! Also called `platdev`, `pdev`.
 //!
 //! C header: [`include/linux/platform_device.h`](../../../../include/linux/platform_device.h)
-
-use core::ffi::c_void;
-
 use crate::{
     bindings,
     device::{self, RawDevice},
     driver,
     error::{from_err_ptr, from_result, to_result, Error, Result},
-    io_mem::Resource,
     of,
     str::CStr,
     types::ForeignOwnable,
     ThisModule,
 };
-use kernel::io_mem::IoMem;
 
 /// A registration of a platform driver.
 pub type Registration<T> = driver::Registration<Adapter<T>>;
