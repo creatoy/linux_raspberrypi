@@ -56,7 +56,7 @@
 #define BCM2835_I2C_CDIV_MIN	0x0002
 #define BCM2835_I2C_CDIV_MAX	0xFFFE
 
-static unsigned int debug;
+static unsigned int debug = 3;
 module_param(debug, uint, 0644);
 MODULE_PARM_DESC(debug, "1=err, 2=isr, 3=xfer");
 
@@ -91,6 +91,7 @@ struct bcm2835_i2c_dev {
 
 static inline void bcm2835_debug_add(struct bcm2835_i2c_dev *i2c_dev, u32 s)
 {
+	pr_info("debug_add[%d]: status=0x%x\n", i2c_dev->debug_num, s);
 	if (!i2c_dev->debug_num_msgs || i2c_dev->debug_num >= BCM2835_DEBUG_MAX)
 		return;
 
@@ -292,30 +293,36 @@ static void bcm2835_fill_txfifo(struct bcm2835_i2c_dev *i2c_dev)
 {
 	u32 val;
 
+	pr_info("drain_txfifo:");
 	while (i2c_dev->msg_buf_remaining) {
 		val = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_S);
 		if (!(val & BCM2835_I2C_S_TXD))
 			break;
 		bcm2835_i2c_writel(i2c_dev, BCM2835_I2C_FIFO,
 				   *i2c_dev->msg_buf);
+		pr_info("\t%02X", *i2c_dev->msg_buf);
 		i2c_dev->msg_buf++;
 		i2c_dev->msg_buf_remaining--;
 	}
+	pr_info("\n");
 }
 
 static void bcm2835_drain_rxfifo(struct bcm2835_i2c_dev *i2c_dev)
 {
 	u32 val;
 
+	pr_info("drain_rxfifo:");
 	while (i2c_dev->msg_buf_remaining) {
 		val = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_S);
 		if (!(val & BCM2835_I2C_S_RXD))
 			break;
 		*i2c_dev->msg_buf = bcm2835_i2c_readl(i2c_dev,
 						      BCM2835_I2C_FIFO);
+		pr_info("\t%02X", *i2c_dev->msg_buf);
 		i2c_dev->msg_buf++;
 		i2c_dev->msg_buf_remaining--;
 	}
+	pr_info("\n");
 }
 
 /*
@@ -394,6 +401,7 @@ static irqreturn_t bcm2835_i2c_isr(int this_irq, void *data)
 		} else if (i2c_dev->curr_msg->flags & I2C_M_RD) {
 			bcm2835_drain_rxfifo(i2c_dev);
 			val = bcm2835_i2c_readl(i2c_dev, BCM2835_I2C_S);
+			pr_info("drain readl: 0x%04X", val);
 		}
 
 		if ((val & BCM2835_I2C_S_RXD) || i2c_dev->msg_buf_remaining)
