@@ -97,6 +97,25 @@ impl I2cMsg {
         self.0.addr as u16
     }
 
+    pub fn buf_ptr(&self) -> *mut u8 {
+        self.0.buf
+    }
+
+    pub fn write_to_buf(&self, data: &[u8]) -> Option<usize> {
+        let data_ptr = data.as_ptr();
+        if data_ptr.is_null() || self.0.buf.is_null() {
+            return None;
+        }
+        let len = self.len() as usize;
+        let len = len.min(data.len());
+        // Safety: buf is valid for len bytes, no contiguity.
+        unsafe {
+            core::ptr::copy_nonoverlapping(data_ptr, self.0.buf, len);
+        }
+
+        Some(len)
+    }
+
     /// return buf of i2c_msg and transfer ownership of the buf
     pub fn buf_to_vec(&self) -> Option<Vec<u8>> {
         let len = self.len() as usize;

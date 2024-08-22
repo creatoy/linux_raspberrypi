@@ -302,15 +302,21 @@ impl Bcm2835I2cDev {
 
             // May Wrong!
             // if let Some(buf) = self.msg_buf.as_mut() {}
-
             if let Some(mut buf) = self.msg_buf.take() {
                 let idx = buf.len() - self.msg_buf_remaining;
                 buf[idx] = self.bcm2835_i2c_readl(BCM2835_I2C_FIFO) as u8;
                 pr_info!("\t{:x}", buf[idx]);
+                self.msg_buf = Some(buf);
                 self.msg_buf_remaining -= 1;
             }
-            pr_info!("\n");
         }
+        pr_info!("\n");
+        // let data = self.curr_msg[self.curr_msg_idx].buf_ptr();
+        let Some(msgs) = self.curr_msg.as_mut() else {
+            return;
+        };
+        let mut msg = msgs[self.curr_msg_idx].clone();
+        msg.write_to_buf(self.msg_buf.as_ref().unwrap());
     }
 
     pub(crate) fn bcm2835_i2c_start_transfer(&mut self) {
@@ -383,7 +389,7 @@ fn bcm2835_i2c_isr(this_irq: i32, i2c_dev: &mut Bcm2835I2cDev) -> irq::Return {
     if val & BCM2835_I2C_S_DONE != 0 {
         match i2c_dev.curr_msg {
             // Note: we represent the ptr buf with vec and the ptr to 0th element is the same as the ptr to the place in C.
-            Some(ref mut msgs) if msgs[i2c_dev.curr_msg_idx].flags() as u32 & I2C_M_RD != 0 => {
+            Some(ref msgs) if msgs[i2c_dev.curr_msg_idx].flags() as u32 & I2C_M_RD != 0 => {
                 i2c_dev.bcm2835_drain_rxfifo();
                 val = i2c_dev.bcm2835_i2c_readl(BCM2835_I2C_S);
                 pr_info!("drain readl: 0x{:04X}", val);
@@ -508,7 +514,7 @@ fn debug_print_status(i2c_dev: &Bcm2835I2cDev, d: &Bcm2835Debug) {
     )
 }
 
-fn debug_print_msg(i2c_dev: &Bcm2835I2cDev, msg: &I2cMsg, fname: &str, idx: i32, total: i32) {
+fn debug_print_msg(i2c_dev: &Bcm2835I2cDev, msg: &I2cMsg, idx: i32, total: i32, fname: &str) {
     let flags = msg.flags() as u32;
     pr_info!(
         "{fname}: msg({idx}/{total}) {} addr=0x{:02x}, len={} flags={}{}{}{}{}{}{} [i2c{}]\n",
@@ -560,9 +566,9 @@ fn debug_print(i2c_dev: &Bcm2835I2cDev, fname: &str) {
             debug_print_msg(
                 i2c_dev,
                 &d.msg,
-                fname,
                 d.msg_idx,
                 i2c_dev.debug_num_msgs as i32,
+                fname,
             );
         } else {
             debug_print_status(i2c_dev, d);
@@ -601,7 +607,7 @@ fn bcm2835_i2c_xfer(adap: &mut I2cAdapter, msgs: Vec<I2cMsg>, num: i32) -> Resul
     if DEBUG > 2 {
         let mut idx = 1;
         for msg in &msgs {
-            debug_print_msg(i2c_dev, &msg, "i2c_xfer", idx, num);
+            debug_print_msg(i2c_dev, &msg, idx, num, "i2c_xfer");
             idx += 1;
         }
     }
